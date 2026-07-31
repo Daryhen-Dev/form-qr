@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: form-qr-db
+    environment:
+      POSTGRES_DB: form_qr
+      POSTGRES_USER: formqr
+      POSTGRES_PASSWORD: formqr
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U formqr -d form_qr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
