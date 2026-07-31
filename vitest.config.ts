@@ -30,6 +30,11 @@ export default defineConfig({
           include: ['**/*.integration.test.ts'],
           exclude: ['node_modules/**'],
           setupFiles: ['tests/setup.integration.ts'],
+          // Disable parallel test file execution — integration tests share a DB
+          // and rely on beforeEach TRUNCATE for isolation. Concurrent execution
+          // across test files causes FK violations (one file truncates mid-test
+          // of another file).
+          fileParallelism: false,
           env: {
             NODE_ENV: 'test',
             // Override DATABASE_URL so that the lib/db PrismaClient singleton

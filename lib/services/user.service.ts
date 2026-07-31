@@ -12,6 +12,16 @@ import { ServiceError } from '@/lib/services/auth.service'
 import type { Principal, Role, UserDTO } from '@/lib/types'
 import type { CreateUserInput, UpdateUserInput } from '@/lib/validations/user.schema'
 
+/** Returns true if the error is a Prisma unique constraint violation. */
+function isPrismaUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code: string }).code === 'P2002'
+  )
+}
+
 /** Maps a raw DB user row to a safe UserDTO (no passwordHash). */
 function toUserDTO(user: {
   id: string
@@ -58,14 +68,22 @@ export async function createUser(
   // Force initial credentials: passwordHash = hash(cedula), pcr = true
   const passwordHash = await hash(dto.cedula)
 
-  const user = await repoCreate({
-    nombres: dto.nombres,
-    apellidos: dto.apellidos,
-    cedula: dto.cedula,
-    passwordHash,
-    role: dto.role as Role,
-    passwordChangeRequired: true,
-  })
+  let user: Awaited<ReturnType<typeof repoCreate>>
+  try {
+    user = await repoCreate({
+      nombres: dto.nombres,
+      apellidos: dto.apellidos,
+      cedula: dto.cedula,
+      passwordHash,
+      role: dto.role as Role,
+      passwordChangeRequired: true,
+    })
+  } catch (err) {
+    if (isPrismaUniqueViolation(err)) {
+      throw new ServiceError(409, 'cedula_taken')
+    }
+    throw err
+  }
 
   await auditRecord({
     action: 'CREATE_USER',
