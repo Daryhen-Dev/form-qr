@@ -22,3 +22,38 @@ model AuditLog {
   performedAt DateTime @default(now()) // UTC - stored as timestamptz
   metadata    Json?
 }
+
+// Role enum — mirrors the ROLE const in lib/types/index.ts (kept in sync manually).
+enum Role {
+  Administrador
+  Secretario
+  Empleado
+}
+
+model User {
+  id                     String         @id @default(cuid())
+  nombres                String
+  apellidos              String
+  cedula                 String         @unique
+  passwordHash           String
+  passwordChangeRequired Boolean        @default(true)
+  role                   Role
+  createdAt              DateTime       @default(now()) // UTC timestamptz
+  updatedAt              DateTime       @updatedAt
+  deletedAt              DateTime? // soft-delete; null = active
+  refreshTokens          RefreshToken[]
+
+  @@index([deletedAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique // SHA-256 of raw refresh JWT — never store raw
+  expiresAt DateTime // UTC
+  revokedAt DateTime? // set on logout or rotation
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
