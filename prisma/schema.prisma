@@ -1,0 +1,24 @@
+// This is your Prisma schema file.
+// Learn more: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Soft-delete convention: soft-deletable models add a deletedAt DateTime? field.
+// Repositories MUST filter where deletedAt IS NULL by default.
+// Hard-delete MUST NOT be exported for soft-deletable models.
+// To delete: set deletedAt to the current UTC timestamp.
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  entityType  String
+  entityId    String
+  performedAt DateTime @default(now()) // UTC - stored as timestamptz
+  metadata    Json?
+}
