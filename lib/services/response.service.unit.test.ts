@@ -37,6 +37,8 @@ vi.mock('@/lib/repositories/question.repository', () => ({
 vi.mock('@/lib/repositories/response.repository', () => ({
   createWithAnswers: vi.fn(),
   findByUserQuestionnaireDay: vi.fn(),
+  findById: vi.fn(),
+  replaceAnswers: vi.fn(),
 }))
 vi.mock('@/lib/repositories/audit.repository', () => ({
   record: vi.fn(),
@@ -47,10 +49,10 @@ import { findActiveByUser } from '@/lib/repositories/branch-assignment.repositor
 import { findByQuestionnaire as findQuestionnaireBranches } from '@/lib/repositories/questionnaire-branch.repository'
 import { findById as findVersionById } from '@/lib/repositories/version.repository'
 import { findByVersion as findQuestionsByVersion } from '@/lib/repositories/question.repository'
-import { createWithAnswers, findByUserQuestionnaireDay } from '@/lib/repositories/response.repository'
+import { createWithAnswers, findByUserQuestionnaireDay, findById as findResponseById, replaceAnswers } from '@/lib/repositories/response.repository'
 import { record as auditRecord } from '@/lib/repositories/audit.repository'
 
-import { create } from './response.service'
+import { create, get, update } from './response.service'
 import { ServiceError } from './auth.service'
 import { RESPONSE_STATUS } from '@/lib/types'
 import type { Principal } from '@/lib/types'
@@ -62,6 +64,8 @@ const mockFindVersionById = vi.mocked(findVersionById)
 const mockFindQuestionsByVersion = vi.mocked(findQuestionsByVersion)
 const mockCreateWithAnswers = vi.mocked(createWithAnswers)
 const mockFindByUserQuestionnaireDay = vi.mocked(findByUserQuestionnaireDay)
+const mockFindResponseById = vi.mocked(findResponseById)
+const mockReplaceAnswers = vi.mocked(replaceAnswers)
 const mockAuditRecord = vi.mocked(auditRecord)
 
 // ---------------------------------------------------------------------------
@@ -426,5 +430,208 @@ describe('response.service.create — one-per-day (409)', () => {
       statusCode: 409,
       message: 'response_exists',
     })
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// get — ownership + DTO shape (Sub-PR 5c)
+// ---------------------------------------------------------------------------
+
+describe('response.service.get — ownership + status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(MOCK_NOW_UTC)
+  })
+
+  it('owner gets own response → returns ResponseDTO with editable status', async () => {
+    const row = {
+      ...baseResponseRow,
+      answers: [{ id: 'ans_01', responseId: 'resp_01', questionId: 'qn_01', value: true }],
+    }
+    mockFindResponseById.mockResolvedValue(row)
+
+    const dto = await get(empleadoPrincipal, 'resp_01')
+    expect(dto.id).toBe('resp_01')
+    expect(dto.status).toBe(RESPONSE_STATUS.EDITABLE)
+    expect(dto.answers).toHaveLength(1)
+  })
+
+  it('non-owner → throws 404 response_not_found (anti-enumeration)', async () => {
+    const row = {
+      ...baseResponseRow,
+      userId: 'other_user',
+      answers: [],
+    }
+    mockFindResponseById.mockResolvedValue(row)
+
+    await expect(get(empleadoPrincipal, 'resp_01')).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'response_not_found',
+    })
+  })
+
+  it('response not found → throws 404', async () => {
+    mockFindResponseById.mockResolvedValue(null)
+
+    await expect(get(empleadoPrincipal, 'resp_missing')).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'response_not_found',
+    })
+  })
+
+  it('response whose window is closed → status read_only', async () => {
+    // businessDay = 2025-03-14 → endUtc = 2025-03-15T04:59:59.999Z
+    // NOW = 2025-03-15T10:00:00Z → past the window → read_only
+    const row = {
+      ...baseResponseRow,
+      businessDay: new Date('2025-03-14'),
+      answers: [],
+    }
+    mockFindResponseById.mockResolvedValue(row)
+
+    const dto = await get(empleadoPrincipal, 'resp_01')
+    expect(dto.status).toBe(RESPONSE_STATUS.READ_ONLY)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// update — ownership + edit-window + audit (Sub-PR 5c)
+// ---------------------------------------------------------------------------
+
+describe('response.service.update — edit-window + ownership', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(MOCK_NOW_UTC)
+    // Default mocks for the happy path through update
+    mockFindResponseById.mockResolvedValue({
+      ...baseResponseRow,
+      answers: [{ id: 'ans_01', responseId: 'resp_01', questionId: 'qn_01', value: true }],
+    })
+    mockFindVersionById.mockResolvedValue(baseVersion)
+    mockFindQuestionsByVersion.mockResolvedValue(baseQuestions)
+    mockReplaceAnswers.mockResolvedValue({
+      ...baseResponseRow,
+      updatedAt: new Date('2025-03-15T10:05:00Z'),
+      answers: [
+        { id: 'ans_new', responseId: 'resp_01', questionId: 'qn_01', value: false },
+      ],
+    })
+    mockAuditRecord.mockResolvedValue(undefined)
+  })
+
+  it('within window + owner → 200, updatedAt refreshed', async () => {
+    const body = {
+      answers: [
+        { questionId: 'qn_01', type: 'boolean' as const, value: false },
+        { questionId: 'qn_02', type: 'scale' as const, value: 4 },
+      ],
+    }
+
+    const dto = await update(empleadoPrincipal, 'resp_01', body)
+    expect(dto.id).toBe('resp_01')
+    expect(dto.status).toBe(RESPONSE_STATUS.EDITABLE)
+    expect(mockReplaceAnswers).toHaveBeenCalledOnce()
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'response_updated' })
+    )
+  })
+
+  it('non-owner → throws 404 response_not_found', async () => {
+    mockFindResponseById.mockResolvedValue({
+      ...baseResponseRow,
+      userId: 'other_user',
+      answers: [],
+    })
+
+    const body = {
+      answers: [{ questionId: 'qn_01', type: 'boolean' as const, value: false }],
+    }
+
+    await expect(update(empleadoPrincipal, 'resp_01', body)).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'response_not_found',
+    })
+    expect(mockReplaceAnswers).not.toHaveBeenCalled()
+  })
+
+  it('response not found → throws 404', async () => {
+    mockFindResponseById.mockResolvedValue(null)
+
+    const body = {
+      answers: [{ questionId: 'qn_01', type: 'boolean' as const, value: false }],
+    }
+
+    await expect(update(empleadoPrincipal, 'resp_01', body)).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'response_not_found',
+    })
+  })
+
+  it('edit window closed (past business day) → throws 409 edit_window_closed', async () => {
+    // Business day 2025-03-14, now is 2025-03-15T10:00:00Z → past endUtc (2025-03-15T04:59:59.999Z)
+    mockFindResponseById.mockResolvedValue({
+      ...baseResponseRow,
+      businessDay: new Date('2025-03-14'),
+      answers: [],
+    })
+
+    const body = {
+      answers: [{ questionId: 'qn_01', type: 'boolean' as const, value: false }],
+    }
+
+    await expect(update(empleadoPrincipal, 'resp_01', body)).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'edit_window_closed',
+    })
+    expect(mockReplaceAnswers).not.toHaveBeenCalled()
+  })
+
+  it('edit at last second of window (23:59:59.999 UTC-5) → allowed', async () => {
+    // businessDay = 2025-03-15 → endUtc = 2025-03-16T04:59:59.999Z
+    // Set now to exactly 2025-03-16T04:59:59.999Z → last millisecond → still editable
+    vi.setSystemTime(new Date('2025-03-16T04:59:59.999Z'))
+
+    const body = {
+      answers: [
+        { questionId: 'qn_01', type: 'boolean' as const, value: false },
+      ],
+    }
+
+    const dto = await update(empleadoPrincipal, 'resp_01', body)
+    expect(dto.status).toBe(RESPONSE_STATUS.EDITABLE)
+    expect(mockReplaceAnswers).toHaveBeenCalledOnce()
+  })
+
+  it('edit at 05:00:00.000Z next day (00:00:00 local next day) → 409', async () => {
+    // businessDay = 2025-03-15 → endUtc = 2025-03-16T04:59:59.999Z
+    // Set now to 2025-03-16T05:00:00.000Z → 1ms past the window
+    vi.setSystemTime(new Date('2025-03-16T05:00:00.000Z'))
+
+    const body = {
+      answers: [{ questionId: 'qn_01', type: 'boolean' as const, value: false }],
+    }
+
+    await expect(update(empleadoPrincipal, 'resp_01', body)).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'edit_window_closed',
+    })
+  })
+
+  it('validates answers against version config before replacing', async () => {
+    // Scale value out of bounds → 422
+    const body = {
+      answers: [
+        { questionId: 'qn_01', type: 'boolean' as const, value: true },
+        { questionId: 'qn_02', type: 'scale' as const, value: 10 }, // max is 5
+      ],
+    }
+
+    await expect(update(empleadoPrincipal, 'resp_01', body)).rejects.toMatchObject({
+      statusCode: 422,
+    })
+    expect(mockReplaceAnswers).not.toHaveBeenCalled()
   })
 })
