@@ -4,9 +4,18 @@ import { findActiveByUser } from '@/lib/repositories/branch-assignment.repositor
 import { findByQuestionnaire as findQuestionnaireBranches } from '@/lib/repositories/questionnaire-branch.repository'
 import { findById as findVersionById } from '@/lib/repositories/version.repository'
 import { findByVersion as findQuestionsByVersion } from '@/lib/repositories/question.repository'
+import { findByUserQuestionnaireDay } from '@/lib/repositories/response.repository'
 import { ServiceError } from '@/lib/services/auth.service'
+import { utcToBusinessDay, businessDayWindowUtc } from '@/lib/utils/business-tz'
 import { RESPONSE_STATUS } from '@/lib/types'
-import type { Principal, ScanResolutionDTO, QuestionnaireVersionDTO, QuestionDTO } from '@/lib/types'
+import type {
+  Principal,
+  ScanResolutionDTO,
+  QuestionnaireVersionDTO,
+  QuestionDTO,
+  ResponseDTO,
+  AnswerDTO,
+} from '@/lib/types'
 
 // ---------------------------------------------------------------------------
 // Internal mappers
@@ -47,6 +56,36 @@ function toQuestionDTO(q: {
     prompt: q.prompt,
     required: q.required,
     config: q.config,
+  }
+}
+
+function toAnswerDTO(a: { questionId: string; value: unknown }): AnswerDTO {
+  return { questionId: a.questionId, value: a.value }
+}
+
+function toResponseDTO(
+  row: {
+    id: string
+    questionnaireId: string
+    versionId: string
+    businessDay: Date
+    createdAt: Date
+    submittedAt: Date | null
+    updatedAt: Date
+    answers?: Array<{ questionId: string; value: unknown }>
+  },
+  status: ResponseDTO['status']
+): ResponseDTO {
+  return {
+    id: row.id,
+    questionnaireId: row.questionnaireId,
+    versionId: row.versionId,
+    businessDay: row.businessDay.toISOString().slice(0, 10),
+    status,
+    answers: (row.answers ?? []).map(toAnswerDTO),
+    createdAt: row.createdAt.toISOString(),
+    submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
+    updatedAt: row.updatedAt.toISOString(),
   }
 }
 
@@ -118,16 +157,40 @@ export async function resolveScan(
   // Gate 5: load ordered questions for the published version.
   const questionRows = await findQuestionsByVersion(version.id)
 
-  // Gate 6: determine today's response status.
-  // TODO (5b): add real same-day lookup via response.repository.findByUserQuestionnaireDay.
-  // In 5a the Response model does not exist yet; status is always 'absent'.
-  const status = RESPONSE_STATUS.ABSENT
+  // Gate 6: determine today's response status via real same-day lookup (Sub-PR 5b).
+  // Derives businessDay in UTC-5 (America/Guayaquil) and looks up any existing response
+  // for (userId, questionnaireId, businessDay). Status is then computed from the
+  // edit-window bounds: absent (no response), editable (within window), read_only (past).
+  const now = new Date()
+  const businessDayStr = utcToBusinessDay(now)
+  const businessDay = new Date(`${businessDayStr}T00:00:00.000Z`)
+  const { endUtc } = businessDayWindowUtc(businessDayStr)
+
+  const existingResponse = await findByUserQuestionnaireDay(
+    principal.userId,
+    questionnaire.id,
+    businessDay
+  )
+
+  let status: ScanResolutionDTO['status']
+  let responseDTO: ResponseDTO | null = null
+
+  if (existingResponse) {
+    const isEditable = now.getTime() <= endUtc.getTime()
+    status = isEditable ? RESPONSE_STATUS.EDITABLE : RESPONSE_STATUS.READ_ONLY
+    responseDTO = toResponseDTO(
+      existingResponse,
+      status
+    )
+  } else {
+    status = RESPONSE_STATUS.ABSENT
+  }
 
   return {
     questionnaireId: questionnaire.id,
     version: toVersionDTO(version),
     questions: questionRows.map(toQuestionDTO),
     status,
-    response: null,
+    response: responseDTO,
   }
 }
