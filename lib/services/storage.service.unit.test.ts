@@ -37,6 +37,7 @@ import {
   createStorageService,
   generateUploadKey,
   getObjectUrl,
+  expectedKeyPrefix,
 } from './storage.service'
 
 const mockS3Client = vi.mocked(S3Client)
@@ -251,5 +252,72 @@ describe('createStorageService — factory', () => {
       await service.presignPutUrl('some/key')
       expect(mockGetSignedUrl).toHaveBeenCalledOnce()
     })
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// generateUploadKey — owner segment (Sub-PR 5d)
+// ---------------------------------------------------------------------------
+
+describe('generateUploadKey — owner segment (5d)', () => {
+  it('with ownerId includes the owner segment in the path', () => {
+    const key = generateUploadKey('t1', 'v1', 'q1', 'owner_01')
+    expect(key).toContain('owner_01')
+    expect(key).toMatch(
+      /^questionnaires\/t1\/versions\/v1\/questions\/q1\/owner_01\//
+    )
+  })
+
+  it('without ownerId is backward-compatible (no owner segment)', () => {
+    const key = generateUploadKey('t1', 'v1', 'q1')
+    expect(key).toMatch(/^questionnaires\/t1\/versions\/v1\/questions\/q1\//)
+    expect(key).not.toContain('owner_01')
+    // The last path segment is just the uuid (no intermediate owner segment)
+    const segments = key.split('/')
+    expect(segments).toHaveLength(7) // questionnaires/t1/versions/v1/questions/q1/uuid
+  })
+
+  it('with ownerId has 8 path segments', () => {
+    const key = generateUploadKey('t1', 'v1', 'q1', 'owner_01')
+    const segments = key.split('/')
+    expect(segments).toHaveLength(8) // questionnaires/t1/versions/v1/questions/q1/owner_01/uuid
+  })
+
+  it('different ownerIds produce different prefixes', () => {
+    const key1 = generateUploadKey('t1', 'v1', 'q1', 'owner_A')
+    const key2 = generateUploadKey('t1', 'v1', 'q1', 'owner_B')
+    const prefix1 = key1.split('/').slice(0, 7).join('/')
+    const prefix2 = key2.split('/').slice(0, 7).join('/')
+    expect(prefix1).not.toBe(prefix2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// expectedKeyPrefix — deterministic prefix helper (Sub-PR 5d)
+// ---------------------------------------------------------------------------
+
+describe('expectedKeyPrefix', () => {
+  it('returns the deterministic prefix ending with /', () => {
+    const prefix = expectedKeyPrefix('t1', 'v1', 'q1', 'owner_01')
+    expect(prefix).toBe('questionnaires/t1/versions/v1/questions/q1/owner_01/')
+  })
+
+  it('a key generated with ownerId starts with the expected prefix', () => {
+    const key = generateUploadKey('t1', 'v1', 'q1', 'owner_01')
+    const prefix = expectedKeyPrefix('t1', 'v1', 'q1', 'owner_01')
+    expect(key.startsWith(prefix)).toBe(true)
+  })
+
+  it('a key generated for a different owner does NOT start with another owner prefix', () => {
+    const key = generateUploadKey('t1', 'v1', 'q1', 'owner_A')
+    const prefixB = expectedKeyPrefix('t1', 'v1', 'q1', 'owner_B')
+    expect(key.startsWith(prefixB)).toBe(false)
+  })
+
+  it('a key generated without ownerId does NOT start with an owner prefix', () => {
+    const key = generateUploadKey('t1', 'v1', 'q1')
+    const prefix = expectedKeyPrefix('t1', 'v1', 'q1', 'owner_01')
+    expect(key.startsWith(prefix)).toBe(false)
   })
 })
