@@ -187,3 +187,75 @@ export interface QuestionnaireBranchDTO {
   assignedAt: string // UTC ISO-8601
 }
 
+// ---------------------------------------------------------------------------
+// QR + Daily Response Flow (Slice 5)
+// No @prisma/client imports — DTOs are plain TS interfaces.
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime const object for response statuses.
+ * absent   — no response has been submitted for today's business day.
+ * editable — a response exists and the edit window (before 23:59:59 UTC-5) is open.
+ * read_only — a response exists but the edit window has closed.
+ */
+export const RESPONSE_STATUS = {
+  ABSENT: 'absent',
+  EDITABLE: 'editable',
+  READ_ONLY: 'read_only',
+} as const
+
+/** Union type derived from RESPONSE_STATUS — kept in sync with service logic. */
+export type ResponseStatus = (typeof RESPONSE_STATUS)[keyof typeof RESPONSE_STATUS]
+
+/** QR data transfer object returned by GET /api/v1/questionnaires/[id]/qr. */
+export interface QrDTO {
+  /** Permanent opaque token — stable across version publishes and soft-deletes. */
+  qrToken: string
+  /** Full URL to the employee-facing scan page, e.g. APP_URL + '/scan/' + qrToken. */
+  scanUrl: string
+  /** Resolution-independent SVG QR code (XML string). */
+  qrSvg: string
+}
+
+/**
+ * Answer data transfer object (5b full shape — declared minimally here for ScanResolutionDTO).
+ * Sub-PR 5b will add the full create/update shapes.
+ */
+export interface AnswerDTO {
+  questionId: string
+  value: unknown
+}
+
+/**
+ * Response data transfer object (5b full shape — declared minimally here).
+ * null when status is 'absent'.
+ */
+export interface ResponseDTO {
+  id: string
+  questionnaireId: string
+  versionId: string
+  /** Local calendar date in America/Guayaquil (YYYY-MM-DD). */
+  businessDay: string
+  status: ResponseStatus
+  answers: AnswerDTO[]
+  createdAt: string  // UTC ISO-8601
+  submittedAt: string | null  // UTC ISO-8601
+  updatedAt: string  // UTC ISO-8601
+}
+
+/**
+ * Payload returned by GET /api/v1/scan/[qrToken].
+ * Contains the current published version, its ordered questions, today's
+ * response status, and the existing response (null when status is 'absent').
+ *
+ * NOTE: response is always null in Sub-PR 5a because the Response model does
+ * not exist yet. Sub-PR 5b adds the real same-day lookup.
+ */
+export interface ScanResolutionDTO {
+  questionnaireId: string
+  version: QuestionnaireVersionDTO
+  questions: QuestionDTO[]
+  status: ResponseStatus
+  /** Existing response for today, or null when absent. Populated in 5b. */
+  response: ResponseDTO | null
+}

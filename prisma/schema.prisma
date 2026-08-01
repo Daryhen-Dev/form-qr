@@ -126,6 +126,10 @@ model Questionnaire {
   title            String
   description      String?
   currentVersionId String?   @unique // explicit published pointer (Decision 4)
+  // Permanent, unguessable token used to identify this questionnaire via QR.
+  // @default(cuid()) backfills any existing rows at migration time (no raw SQL needed).
+  // The token is stable across version publishes and soft-deletes.
+  qrToken          String    @unique @default(cuid())
   createdAt        DateTime  @default(now()) // UTC
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime? // soft-delete; null = active

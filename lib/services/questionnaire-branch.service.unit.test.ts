@@ -72,6 +72,7 @@ const baseQuestionnaire = {
   title: 'Test Template',
   description: null,
   currentVersionId: null,
+  qrToken: 'qr-token-q01',
   createdAt: new Date(),
   updatedAt: new Date(),
   deletedAt: null,
