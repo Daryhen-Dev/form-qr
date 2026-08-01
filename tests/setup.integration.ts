@@ -24,16 +24,29 @@ if (!testDatabaseUrl) {
   )
 }
 
+// Force the lib/db singleton to use the test database by clearing the globalThis cache.
+// Without this, the singleton may be pointing to the dev DATABASE_URL if unit tests ran first.
+const globalForPrisma = globalThis as unknown as { __prisma: PrismaClient | undefined }
+if (globalForPrisma.__prisma) {
+  await globalForPrisma.__prisma.$disconnect()
+  globalForPrisma.__prisma = undefined
+}
+
 const adapter = new PrismaPg({ connectionString: testDatabaseUrl })
 const prisma = new PrismaClient({ adapter })
 
+// Repopulate the globalThis singleton with the test-DB client so lib/db picks it up
+globalForPrisma.__prisma = prisma
+
 beforeEach(async () => {
-  // Truncate all tables and restart identity sequences between tests
+  // Truncate all tables and restart identity sequences between tests.
+  // Order matters: RefreshToken references User, so User must be truncated after RefreshToken.
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "AuditLog" RESTART IDENTITY CASCADE'
+    'TRUNCATE TABLE "RefreshToken", "User", "AuditLog" RESTART IDENTITY CASCADE'
   )
 })
 
 afterAll(async () => {
+  globalForPrisma.__prisma = undefined
   await prisma.$disconnect()
 })
