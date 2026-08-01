@@ -14,11 +14,12 @@ import {
   nextVersionNumber,
   publish as repoPublish,
 } from '@/lib/repositories/version.repository'
-import { findByVersion } from '@/lib/repositories/question.repository'
+import { findByVersion, replaceForVersion } from '@/lib/repositories/question.repository'
 import { record as auditRecord } from '@/lib/repositories/audit.repository'
 import { ServiceError } from '@/lib/services/auth.service'
 import type { Principal, QuestionnaireDTO, QuestionnaireVersionDTO, QuestionDTO } from '@/lib/types'
 import type { CreateQuestionnaireInput, UpdateQuestionnaireInput } from '@/lib/validations/questionnaire.schema'
+import type { SetQuestionsInput } from '@/lib/validations/question.schema'
 
 // ---------------------------------------------------------------------------
 // Mappers
@@ -350,4 +351,66 @@ export async function publishVersion(
   })
 
   return toVersionDTO(published)
+}
+
+// ---------------------------------------------------------------------------
+// Question mutations (4b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sets (replaces) the full ordered question set for a draft version.
+ *
+ * This is a replace-all operation: existing questions for the version are
+ * deleted and the provided set is inserted atomically.
+ *
+ * Immutability guard: if the version is already published, throws
+ * ServiceError(409, 'version_immutable'). Only draft versions may be mutated.
+ *
+ * Authorization: Administrador or Secretario only (Empleado → 403).
+ * Writes an AuditLog row on success.
+ *
+ * @param principal      - The authenticated caller.
+ * @param questionnaireId - The owning questionnaire template id.
+ * @param versionId      - The version to set questions on.
+ * @param input          - Validated input from setQuestionsSchema.
+ * @returns The version DTO with the newly set questions ordered ascending.
+ */
+export async function setVersionQuestions(
+  principal: Principal,
+  questionnaireId: string,
+  versionId: string,
+  input: SetQuestionsInput
+): Promise<QuestionnaireVersionDTO & { questions: QuestionDTO[] }> {
+  assertManagementRole(principal)
+
+  const questionnaire = await findById(questionnaireId)
+  if (!questionnaire) {
+    throw new ServiceError(404, 'questionnaire_not_found')
+  }
+
+  const version = await findVersionById(versionId)
+  if (!version || version.questionnaireId !== questionnaireId) {
+    throw new ServiceError(404, 'version_not_found')
+  }
+
+  // Immutability guard: published versions may not have their questions replaced
+  assertDraftVersion(version)
+
+  const newQuestions = await replaceForVersion(versionId, input.questions)
+
+  await auditRecord({
+    action: 'SET_QUESTIONS',
+    entityType: 'QuestionnaireVersion',
+    entityId: versionId,
+    metadata: {
+      setBy: principal.userId,
+      questionnaireId,
+      questionCount: newQuestions.length,
+    },
+  })
+
+  return {
+    ...toVersionDTO(version),
+    questions: newQuestions.map(toQuestionDTO),
+  }
 }
