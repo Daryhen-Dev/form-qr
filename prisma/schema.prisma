@@ -43,6 +43,7 @@ model User {
   deletedAt              DateTime? // soft-delete; null = active
   refreshTokens      RefreshToken[]
   branchAssignments  BranchAssignment[] // relation field only — no column change
+  responses          Response[]         // virtual relation — no column change (Slice 5b)
 
   @@index([deletedAt])
 }
@@ -136,6 +137,7 @@ model Questionnaire {
   versions         QuestionnaireVersion[] @relation("QuestionnaireVersions")
   currentVersion   QuestionnaireVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
   branches         QuestionnaireBranch[]
+  responses        Response[]             // virtual relation — no column change (Slice 5b)
 
   @@index([deletedAt])
 }
@@ -151,6 +153,7 @@ model QuestionnaireVersion {
   questionnaire   Questionnaire @relation("QuestionnaireVersions", fields: [questionnaireId], references: [id])
   currentOf       Questionnaire? @relation("CurrentVersion")
   questions       Question[]
+  responses       Response[]     // virtual relation — no column change (Slice 5b)
 
   @@unique([questionnaireId, versionNumber])
   @@index([questionnaireId])
@@ -165,6 +168,7 @@ model Question {
   required  Boolean      @default(false)
   config    Json                              // type-specific; validated by discriminated Zod union
   version   QuestionnaireVersion @relation(fields: [versionId], references: [id])
+  answers   Answer[]             // virtual relation — no column change (Slice 5b)
 
   @@unique([versionId, order])
   @@index([versionId])
@@ -180,4 +184,48 @@ model QuestionnaireBranch {
 
   @@unique([questionnaireId, branchId]) // Decision 7 — 409 backstop
   @@index([branchId])
+}
+
+// ---------------------------------------------------------------------------
+// QR + Daily Response Flow (Slice 5b)
+// ---------------------------------------------------------------------------
+
+model Response {
+  id              String    @id @default(cuid())
+  questionnaireId String
+  versionId       String
+  userId          String
+  /// Local calendar date in America/Guayaquil (UTC-5), stored as a DATE type.
+  /// Drives the one-per-day compound unique constraint. Derived via utcToBusinessDay.
+  businessDay     DateTime  @db.Date
+  createdAt       DateTime  @default(now())           // UTC
+  submittedAt     DateTime?                            // UTC; set on submit
+  updatedAt       DateTime  @updatedAt                 // UTC
+  deletedAt       DateTime?                            // soft-delete; null = active
+  questionnaire   Questionnaire        @relation(fields: [questionnaireId], references: [id])
+  version         QuestionnaireVersion @relation(fields: [versionId], references: [id])
+  user            User                 @relation(fields: [userId], references: [id])
+  answers         Answer[]
+
+  /// One response per (employee, questionnaire, business day) — fully declarative,
+  /// no raw SQL. Prisma 7 supports unconditional compound uniques natively.
+  @@unique([userId, questionnaireId, businessDay])
+  @@index([questionnaireId])
+  @@index([userId])
+  @@index([businessDay])
+  @@index([deletedAt])
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  responseId String
+  questionId String
+  /// Per-type answer value. Structurally validated by Zod discriminated union;
+  /// config correctness (option ids, bounds, required) validated by service.
+  value      Json
+  response   Response @relation(fields: [responseId], references: [id])
+  question   Question @relation(fields: [questionId], references: [id])
+
+  @@unique([responseId, questionId])
+  @@index([responseId])
 }
