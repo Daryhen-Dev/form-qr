@@ -41,7 +41,8 @@ model User {
   createdAt              DateTime       @default(now()) // UTC timestamptz
   updatedAt              DateTime       @updatedAt
   deletedAt              DateTime? // soft-delete; null = active
-  refreshTokens          RefreshToken[]
+  refreshTokens      RefreshToken[]
+  branchAssignments  BranchAssignment[] // relation field only — no column change
 
   @@index([deletedAt])
 }
@@ -56,4 +57,41 @@ model RefreshToken {
   user      User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Branches + Employee Assignment (Slice 3)
+// ---------------------------------------------------------------------------
+
+model Branch {
+  id          String             @id @default(cuid())
+  name        String
+  code        String? // optional short code (nullable, additive)
+  address     String?
+  createdAt   DateTime           @default(now()) // UTC timestamptz
+  updatedAt   DateTime           @updatedAt
+  deletedAt   DateTime? // soft-delete; null = active
+  assignments BranchAssignment[]
+
+  @@index([deletedAt])
+}
+
+/// Partial unique index (single active assignment per employee) is added via raw SQL
+/// in the migration; Prisma 7 cannot declare conditional unique indexes:
+///   CREATE UNIQUE INDEX "uniq_active_assignment_per_user"
+///     ON "BranchAssignment"("userId") WHERE "unassignedAt" IS NULL;
+/// IMPORTANT: If this migration is ever regenerated (schema revert + re-create),
+/// the raw SQL block above MUST be manually re-appended to the new migration.sql file.
+model BranchAssignment {
+  id           String    @id @default(cuid())
+  branchId     String
+  userId       String
+  assignedAt   DateTime  @default(now()) // UTC
+  unassignedAt DateTime? // null = active; set = closed (UTC)
+  createdAt    DateTime  @default(now())
+  branch       Branch    @relation(fields: [branchId], references: [id])
+  user         User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([branchId])
 }
