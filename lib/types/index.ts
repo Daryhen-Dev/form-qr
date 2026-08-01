@@ -76,3 +76,37 @@ export interface UserDTO {
   updatedAt: string // UTC ISO-8601
 }
 
+// ---------------------------------------------------------------------------
+// Branches + Employee Assignment (Slice 3)
+// No @prisma/client imports — DTOs are plain TS interfaces (NFR-BR-8).
+// ---------------------------------------------------------------------------
+
+/** Branch data transfer object — safe to include in API responses. */
+export interface BranchDTO {
+  id: string
+  name: string
+  code: string | null
+  address: string | null
+  createdAt: string // UTC ISO-8601
+  updatedAt: string // UTC ISO-8601
+}
+
+/** Assignment record data transfer object — safe to include in API responses. */
+export interface AssignmentDTO {
+  id: string
+  branchId: string
+  userId: string
+  assignedAt: string // UTC ISO-8601
+  unassignedAt: string | null // UTC ISO-8601; null when the assignment is active
+}
+
+/**
+ * Response shape for the employee-branch lookup endpoint.
+ * Returns the current active branch (null when unassigned) and the full
+ * assignment history ordered by assignedAt descending (AD-5).
+ */
+export interface EmployeeBranchViewDTO {
+  branch: BranchDTO | null
+  history: AssignmentDTO[]
+}
+
