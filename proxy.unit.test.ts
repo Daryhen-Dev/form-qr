@@ -170,3 +170,60 @@ describe('proxy.ts — JWT gate', () => {
     expect(res.status).not.toBe(403)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Questionnaire gate (Slice 4)
+// ---------------------------------------------------------------------------
+
+describe('proxy.ts — questionnaire gate', () => {
+  beforeEach(() => {
+    mockVerify.mockReset()
+  })
+
+  it('returns 403 for Empleado on /api/v1/questionnaires', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/questionnaires', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toBe('insufficient_permissions')
+  })
+
+  it('returns 403 for Empleado on /api/v1/questionnaires/some-id', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/questionnaires/some-id', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 403 for Empleado on /api/v1/questionnaires/some-id/versions', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/questionnaires/some-id/versions', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+  })
+
+  it('passes through Administrador on /api/v1/questionnaires', async () => {
+    mockVerify.mockResolvedValue(validAdminClaims)
+    const req = makeRequest('/api/v1/questionnaires', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(403)
+  })
+
+  it('passes through Secretario on /api/v1/questionnaires', async () => {
+    mockVerify.mockResolvedValue(validSecClaims)
+    const req = makeRequest('/api/v1/questionnaires', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(403)
+  })
+
+  it('returns 401 for unauthenticated request to /api/v1/questionnaires', async () => {
+    const req = makeRequest('/api/v1/questionnaires')
+    const res = await proxy(req)
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe('unauthorized')
+  })
+})

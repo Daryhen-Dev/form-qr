@@ -72,9 +72,11 @@ model Branch {
   updatedAt   DateTime           @updatedAt
   deletedAt   DateTime? // soft-delete; null = active
   assignments BranchAssignment[]
+  questionnaires QuestionnaireBranch[] // virtual relation only — no column change
 
   @@index([deletedAt])
 }
+
 
 /// Partial unique index (single active assignment per employee) is added via raw SQL
 /// in the migration; Prisma 7 cannot declare conditional unique indexes:
@@ -93,5 +95,85 @@ model BranchAssignment {
   user         User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
+  @@index([branchId])
+}
+
+// ---------------------------------------------------------------------------
+// Questionnaire Templates + Versioning (Slice 4)
+// ---------------------------------------------------------------------------
+
+enum QuestionType {
+  boolean
+  single_choice
+  multiple_choice
+  scale
+  short_text
+  long_text
+  number
+  date
+  time
+  photo
+  file
+}
+
+enum VersionStatus {
+  draft
+  published
+}
+
+model Questionnaire {
+  id               String    @id @default(cuid())
+  title            String
+  description      String?
+  currentVersionId String?   @unique // explicit published pointer (Decision 4)
+  createdAt        DateTime  @default(now()) // UTC
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime? // soft-delete; null = active
+  versions         QuestionnaireVersion[] @relation("QuestionnaireVersions")
+  currentVersion   QuestionnaireVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  branches         QuestionnaireBranch[]
+
+  @@index([deletedAt])
+}
+
+model QuestionnaireVersion {
+  id              String        @id @default(cuid())
+  questionnaireId String
+  versionNumber   Int
+  status          VersionStatus @default(draft)
+  publishedAt     DateTime?                      // set on publish (UTC)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  questionnaire   Questionnaire @relation("QuestionnaireVersions", fields: [questionnaireId], references: [id])
+  currentOf       Questionnaire? @relation("CurrentVersion")
+  questions       Question[]
+
+  @@unique([questionnaireId, versionNumber])
+  @@index([questionnaireId])
+}
+
+model Question {
+  id        String       @id @default(cuid())
+  versionId String
+  order     Int                               // positive; unique within version
+  type      QuestionType
+  prompt    String
+  required  Boolean      @default(false)
+  config    Json                              // type-specific; validated by discriminated Zod union
+  version   QuestionnaireVersion @relation(fields: [versionId], references: [id])
+
+  @@unique([versionId, order])
+  @@index([versionId])
+}
+
+model QuestionnaireBranch {
+  id              String   @id @default(cuid())
+  questionnaireId String
+  branchId        String
+  assignedAt      DateTime @default(now()) // UTC
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id])
+  branch          Branch        @relation(fields: [branchId], references: [id])
+
+  @@unique([questionnaireId, branchId]) // Decision 7 — 409 backstop
   @@index([branchId])
 }

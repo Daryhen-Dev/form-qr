@@ -110,3 +110,80 @@ export interface EmployeeBranchViewDTO {
   history: AssignmentDTO[]
 }
 
+// ---------------------------------------------------------------------------
+// Questionnaire Templates + Versioning (Slice 4)
+// No @prisma/client imports — DTOs are plain TS interfaces (NFR-R7#3).
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime const object for question types.
+ * Use QUESTION_TYPE.BOOLEAN etc. in code; never import from @prisma/client in
+ * services, validations, or types modules.
+ */
+export const QUESTION_TYPE = {
+  BOOLEAN: 'boolean',
+  SINGLE_CHOICE: 'single_choice',
+  MULTIPLE_CHOICE: 'multiple_choice',
+  SCALE: 'scale',
+  SHORT_TEXT: 'short_text',
+  LONG_TEXT: 'long_text',
+  NUMBER: 'number',
+  DATE: 'date',
+  TIME: 'time',
+  PHOTO: 'photo',
+  FILE: 'file',
+} as const
+
+/** Union type derived from QUESTION_TYPE — kept in sync with prisma QuestionType enum. */
+export type QuestionType = (typeof QUESTION_TYPE)[keyof typeof QUESTION_TYPE]
+
+/**
+ * Runtime const object for version statuses.
+ */
+export const VERSION_STATUS = {
+  DRAFT: 'draft',
+  PUBLISHED: 'published',
+} as const
+
+/** Union type derived from VERSION_STATUS — kept in sync with prisma VersionStatus enum. */
+export type VersionStatus = (typeof VERSION_STATUS)[keyof typeof VERSION_STATUS]
+
+/** Questionnaire template data transfer object — safe to include in API responses. */
+export interface QuestionnaireDTO {
+  id: string
+  title: string
+  description: string | null
+  currentVersionId: string | null
+  createdAt: string // UTC ISO-8601
+  updatedAt: string // UTC ISO-8601
+}
+
+/** Questionnaire version data transfer object — safe to include in API responses. */
+export interface QuestionnaireVersionDTO {
+  id: string
+  questionnaireId: string
+  versionNumber: number
+  status: VersionStatus
+  publishedAt: string | null // UTC ISO-8601; null when draft
+  createdAt: string // UTC ISO-8601
+  updatedAt: string // UTC ISO-8601
+}
+
+/** Question data transfer object — safe to include in API responses. */
+export interface QuestionDTO {
+  id: string
+  order: number
+  type: QuestionType
+  prompt: string
+  required: boolean
+  config: Record<string, unknown>
+}
+
+/** Questionnaire–branch assignment data transfer object — safe to include in API responses. */
+export interface QuestionnaireBranchDTO {
+  id: string
+  questionnaireId: string
+  branchId: string
+  assignedAt: string // UTC ISO-8601
+}
+
