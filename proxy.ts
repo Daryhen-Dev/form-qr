@@ -42,6 +42,11 @@ function requiresBranchManagementRole(pathname: string): boolean {
   return pathname.startsWith('/api/v1/branches')
 }
 
+/** Routes that require role ∈ {Administrador, Secretario} — Empleado denied. */
+function requiresReportRole(pathname: string): boolean {
+  return pathname.startsWith('/api/v1/reports')
+}
+
 export async function proxy(request: NextRequest): Promise<Response | NextResponse> {
   const { pathname } = request.nextUrl
 
@@ -89,7 +94,12 @@ export async function proxy(request: NextRequest): Promise<Response | NextRespon
     return Response.json({ error: 'insufficient_permissions' }, { status: 403 })
   }
 
-  // 8. Pass through — handlers re-verify the principal (defense-in-depth).
+  // 8. Coarse role gate for report routes: Empleado is denied.
+  if (requiresReportRole(pathname) && claims.role === 'Empleado') {
+    return Response.json({ error: 'insufficient_permissions' }, { status: 403 })
+  }
+
+  // 9. Pass through — handlers re-verify the principal (defense-in-depth).
   //
   // ---------------------------------------------------------------------------
   // Sub-PR 5a: Empleado-reachable routes — intentional classification note

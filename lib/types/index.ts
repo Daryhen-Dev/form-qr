@@ -271,3 +271,90 @@ export interface PresignDTO {
   /** Server-issued object key — must be used as-is in the answer value. */
   objectKey: string
 }
+
+// ---------------------------------------------------------------------------
+// Reports (Slice 6) — read-only reporting DTOs
+// No @prisma/client imports — DTOs are plain TS interfaces.
+// ---------------------------------------------------------------------------
+
+/** Generic pagination envelope. */
+export interface Paginated<T> {
+  items: T[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+/** Summary stats for a compliance report. */
+export interface ComplianceSummaryDTO {
+  totalAssigned: number
+  responded: number
+  pending: number
+  /** responded / totalAssigned; 0 when totalAssigned is 0. Rounded to 2dp. */
+  complianceRate: number
+}
+
+/** Per-employee/per-questionnaire/per-day detail in compliance report. */
+export interface ComplianceDetailDTO {
+  questionnaireId: string
+  questionnaireTitle: string
+  branchId: string
+  branchName: string
+  employeeId: string
+  employeeName: string
+  responded: boolean
+  businessDay: string
+}
+
+/** Full compliance report response shape. */
+export interface ComplianceReportDTO {
+  from: string
+  to: string
+  summary: ComplianceSummaryDTO
+  details: Paginated<ComplianceDetailDTO>
+}
+
+/** An employee who has not responded for a given business day. */
+export interface PendingEntryDTO {
+  employeeId: string
+  employeeName: string
+  branchId: string
+  branchName: string
+  questionnaireId: string
+  questionnaireTitle: string
+}
+
+/** Pending employees report response shape. */
+export interface PendingReportDTO {
+  businessDay: string
+  pending: PendingEntryDTO[]
+}
+
+/** Enriched answer within a history entry. */
+export interface EnrichedAnswerDTO {
+  questionId: string
+  prompt: string
+  type: string
+  value: unknown
+}
+
+/** Single response record in the history report. */
+export interface HistoryEntryDTO {
+  id: string
+  employeeId: string
+  employeeName: string
+  questionnaireId: string
+  questionnaireTitle: string
+  versionId: string
+  versionNumber: number
+  businessDay: string
+  createdAt: string
+  answers: EnrichedAnswerDTO[]
+}
+
+/** Full history report response shape. */
+export interface HistoryReportDTO {
+  from: string
+  to: string
+  results: Paginated<HistoryEntryDTO>
+}
