@@ -293,6 +293,59 @@ describe('proxy.ts — branch gate', () => {
 // Sub-PR 5a: Empleado-reachable routes (scan / responses / uploads)
 // ---------------------------------------------------------------------------
 
+describe('proxy.ts — report gate (Slice 6)', () => {
+  beforeEach(() => {
+    mockVerify.mockReset()
+  })
+
+  it('returns 403 for Empleado on /api/v1/reports/compliance', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/reports/compliance', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toBe('insufficient_permissions')
+  })
+
+  it('returns 403 for Empleado on /api/v1/reports/pending', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/reports/pending', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 403 for Empleado on /api/v1/reports/history', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/reports/history', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+  })
+
+  it('passes through Administrador on /api/v1/reports/compliance', async () => {
+    mockVerify.mockResolvedValue(validAdminClaims)
+    const req = makeRequest('/api/v1/reports/compliance', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(403)
+  })
+
+  it('passes through Secretario on /api/v1/reports/pending', async () => {
+    mockVerify.mockResolvedValue(validSecClaims)
+    const req = makeRequest('/api/v1/reports/pending', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(403)
+  })
+
+  it('returns 401 for missing token on /api/v1/reports/history', async () => {
+    const req = makeRequest('/api/v1/reports/history')
+    const res = await proxy(req)
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe('unauthorized')
+  })
+})
+
 describe('proxy.ts — 5a Empleado-reachable routes', () => {
   beforeEach(() => {
     mockVerify.mockReset()
