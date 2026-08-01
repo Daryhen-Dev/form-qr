@@ -2,11 +2,11 @@ import { z } from 'zod'
 
 /**
  * Shared cédula validation rule.
- * Colombian cédula de ciudadanía: numeric string, 6–10 digits.
- * Design decision AD-6: 6–10 (may widen to 12 if extranjería IDs are confirmed in-scope).
+ * Numeric string, 6–15 digits — covers cédula de ciudadanía and cédula de extranjería.
+ * Design decision AD-6 / CF-01: max widened to 15 per business confirmation.
  */
-export const cedulaSchema = z.string().regex(/^\d{6,10}$/, {
-  message: 'cedula must be a numeric string between 6 and 10 digits',
+export const cedulaSchema = z.string().regex(/^\d{6,15}$/, {
+  message: 'cedula must be a numeric string between 6 and 15 digits',
 })
 
 /**

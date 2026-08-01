@@ -28,8 +28,8 @@ describe('loginSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('rejects cédula longer than 10 digits', () => {
-    const result = loginSchema.safeParse({ cedula: '12345678901', password: 'x' })
+  it('rejects cédula longer than 15 digits', () => {
+    const result = loginSchema.safeParse({ cedula: '1234567890123456', password: 'x' })
     expect(result.success).toBe(false)
   })
 
@@ -43,8 +43,8 @@ describe('loginSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts a 10-digit cédula (maximum)', () => {
-    const result = loginSchema.safeParse({ cedula: '1234567890', password: 'x' })
+  it('accepts a 15-digit cédula (maximum)', () => {
+    const result = loginSchema.safeParse({ cedula: '123456789012345', password: 'x' })
     expect(result.success).toBe(true)
   })
 

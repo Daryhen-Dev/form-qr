@@ -54,8 +54,8 @@ describe('createUserSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('rejects cédula longer than 10 digits', () => {
-    const result = createUserSchema.safeParse({ ...validCreatePayload, cedula: '12345678901' })
+  it('rejects cédula longer than 15 digits', () => {
+    const result = createUserSchema.safeParse({ ...validCreatePayload, cedula: '1234567890123456' })
     expect(result.success).toBe(false)
   })
 
