@@ -50,6 +50,17 @@ export async function findById(id: string): Promise<BranchRow | null> {
 }
 
 /**
+ * Finds a branch by ID regardless of soft-delete status.
+ * Returns the row even when deletedAt is set; returns null only when the ID
+ * does not exist at all. Used to distinguish 404 (missing) from 422 (inactive).
+ */
+export async function findByIdIncludingDeleted(id: string): Promise<BranchRow | null> {
+  return prisma.branch.findUnique({
+    where: { id },
+  }) as Promise<BranchRow | null>
+}
+
+/**
  * Returns all active (non-deleted) branches ordered by createdAt ascending.
  * Soft-deleted branches are excluded by the default filter.
  */
