@@ -6,7 +6,7 @@ import {
   findByBranch,
 } from '@/lib/repositories/questionnaire-branch.repository'
 import { findById as findQuestionnaire } from '@/lib/repositories/questionnaire.repository'
-import { findById as findBranch } from '@/lib/repositories/branch.repository'
+import { findById as findBranch, findByIdIncludingDeleted as findBranchIncludingDeleted } from '@/lib/repositories/branch.repository'
 import { record as auditRecord } from '@/lib/repositories/audit.repository'
 import { ServiceError } from '@/lib/services/auth.service'
 import type { Principal, QuestionnaireBranchDTO } from '@/lib/types'
@@ -72,18 +72,14 @@ export async function assignBranch(
   }
 
   // Verify branch — findById returns null for both missing AND soft-deleted branches.
-  // We need to distinguish: look up without the deletedAt filter to detect inactive.
+  // Use findByIdIncludingDeleted to distinguish 404 (not found) from 422 (inactive).
   const branch = await findBranch(branchId)
   if (!branch) {
-    // Could be missing or soft-deleted — call lower-level Prisma via branch repo?
-    // branch.repository.findById already filters deletedAt:null.
-    // To surface 422 for inactive vs 404 for missing, do a raw check:
-    const { prisma } = await import('@/lib/db')
-    const rawBranch = await prisma.branch.findUnique({ where: { id: branchId } })
+    const rawBranch = await findBranchIncludingDeleted(branchId)
     if (!rawBranch) {
       throw new ServiceError(404, 'branch_not_found')
     }
-    // rawBranch exists but findById returned null → it's soft-deleted
+    // rawBranch exists but findById returned null → it is soft-deleted
     throw new ServiceError(422, 'branch_inactive')
   }
 

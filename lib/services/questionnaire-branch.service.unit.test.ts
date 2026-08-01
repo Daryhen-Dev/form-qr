@@ -17,17 +17,10 @@ vi.mock('@/lib/repositories/questionnaire.repository', () => ({
 }))
 vi.mock('@/lib/repositories/branch.repository', () => ({
   findById: vi.fn(),
+  findByIdIncludingDeleted: vi.fn(),
 }))
 vi.mock('@/lib/repositories/audit.repository', () => ({
   record: vi.fn(),
-}))
-// Mock prisma for raw branch lookup (inactive-branch detection)
-vi.mock('@/lib/db', () => ({
-  prisma: {
-    branch: {
-      findUnique: vi.fn(),
-    },
-  },
 }))
 
 import {
@@ -37,9 +30,8 @@ import {
   findByBranch,
 } from '@/lib/repositories/questionnaire-branch.repository'
 import { findById as findQuestionnaire } from '@/lib/repositories/questionnaire.repository'
-import { findById as findBranch } from '@/lib/repositories/branch.repository'
+import { findById as findBranch, findByIdIncludingDeleted as findBranchIncludingDeleted } from '@/lib/repositories/branch.repository'
 import { record as auditRecord } from '@/lib/repositories/audit.repository'
-import { prisma } from '@/lib/db'
 import {
   assignBranch,
   unassignBranch,
@@ -55,8 +47,8 @@ const mockFindByQuestionnaire = vi.mocked(findByQuestionnaire)
 const mockFindByBranch = vi.mocked(findByBranch)
 const mockFindQuestionnaire = vi.mocked(findQuestionnaire)
 const mockFindBranch = vi.mocked(findBranch)
+const mockFindBranchIncludingDeleted = vi.mocked(findBranchIncludingDeleted)
 const mockAuditRecord = vi.mocked(auditRecord)
-const mockPrismaFindUnique = vi.mocked(prisma.branch.findUnique)
 
 // Helper principals
 const adminPrincipal: Principal = {
@@ -167,7 +159,7 @@ describe('questionnaire-branch.service.assignBranch — branch status', () => {
   it('missing branch → throws 404 branch_not_found', async () => {
     mockFindQuestionnaire.mockResolvedValueOnce(baseQuestionnaire)
     mockFindBranch.mockResolvedValueOnce(null) // active-only lookup returns null
-    mockPrismaFindUnique.mockResolvedValueOnce(null) // raw lookup also null → truly missing
+    mockFindBranchIncludingDeleted.mockResolvedValueOnce(null) // raw lookup also null → truly missing
 
     await expect(
       assignBranch(adminPrincipal, 'q_01', 'nonexistent')
@@ -179,7 +171,7 @@ describe('questionnaire-branch.service.assignBranch — branch status', () => {
     mockFindQuestionnaire.mockResolvedValueOnce(baseQuestionnaire)
     mockFindBranch.mockResolvedValueOnce(null) // active-only lookup returns null
     // raw lookup returns the branch (it exists but is soft-deleted)
-    mockPrismaFindUnique.mockResolvedValueOnce({ ...baseBranch, deletedAt: new Date() } as never)
+    mockFindBranchIncludingDeleted.mockResolvedValueOnce({ ...baseBranch, deletedAt: new Date() })
 
     await expect(
       assignBranch(adminPrincipal, 'q_01', 'b_deleted')

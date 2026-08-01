@@ -227,3 +227,64 @@ describe('proxy.ts — questionnaire gate', () => {
     expect(body.error).toBe('unauthorized')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Branch gate (Slice 3 — restored)
+// ---------------------------------------------------------------------------
+
+describe('proxy.ts — branch gate', () => {
+  beforeEach(() => {
+    mockVerify.mockReset()
+  })
+
+  it('returns 403 for Empleado on GET /api/v1/branches', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/branches', { method: 'GET', headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toBe('insufficient_permissions')
+  })
+
+  it('returns 403 for Empleado on POST /api/v1/branches', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/branches', { method: 'POST', headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toBe('insufficient_permissions')
+  })
+
+  it('returns 403 for Empleado on /api/v1/branches/some-id/employees', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/branches/some-id/employees', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toBe('insufficient_permissions')
+  })
+
+  it('returns 401 for missing token on /api/v1/branches', async () => {
+    const req = makeRequest('/api/v1/branches')
+    const res = await proxy(req)
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe('unauthorized')
+  })
+
+  it('passes through Administrador on /api/v1/branches', async () => {
+    mockVerify.mockResolvedValue(validAdminClaims)
+    const req = makeRequest('/api/v1/branches', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(403)
+  })
+
+  it('passes through Secretario on /api/v1/branches', async () => {
+    mockVerify.mockResolvedValue(validSecClaims)
+    const req = makeRequest('/api/v1/branches', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(403)
+  })
+})
