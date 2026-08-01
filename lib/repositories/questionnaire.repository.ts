@@ -7,6 +7,7 @@ export interface QuestionnaireRow {
   title: string
   description: string | null
   currentVersionId: string | null
+  qrToken: string
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
@@ -96,3 +97,14 @@ export async function setCurrentVersion(
 
 // NOTE: Hard-delete is intentionally absent. Exporting a hard-delete function
 // would violate the spec requirement that deletion is soft-only.
+
+/**
+ * Finds an active (non-deleted) questionnaire by its permanent qrToken.
+ * Returns null if not found or soft-deleted.
+ * Used by scan.service to resolve a scan without exposing the sequential id.
+ */
+export async function findByQrToken(qrToken: string): Promise<QuestionnaireRow | null> {
+  return prisma.questionnaire.findFirst({
+    where: { qrToken, deletedAt: null },
+  }) as Promise<QuestionnaireRow | null>
+}

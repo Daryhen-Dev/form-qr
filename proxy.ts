@@ -90,6 +90,29 @@ export async function proxy(request: NextRequest): Promise<Response | NextRespon
   }
 
   // 8. Pass through — handlers re-verify the principal (defense-in-depth).
+  //
+  // ---------------------------------------------------------------------------
+  // Sub-PR 5a: Empleado-reachable routes — intentional classification note
+  // ---------------------------------------------------------------------------
+  // The following route prefixes are intentionally NOT added to any
+  // Empleado-denied classifier above:
+  //
+  //   /api/v1/scan*       — Employee QR scan resolution (scan.service re-asserts
+  //                         Empleado role + active-branch assignment + questionnaire
+  //                         assignment as defense-in-depth).
+  //   /api/v1/responses*  — Employee daily response CRUD (response.service, Sub-PR 5b).
+  //   /api/v1/uploads*    — Employee file/photo presign (upload.service, Sub-PR 5d).
+  //
+  // These routes do NOT start with 'users', 'questionnaires', or 'branches', so
+  // they fall through to NextResponse.next() after the Bearer + pcr checks. Any
+  // authenticated principal with a valid, non-expired token and pcr=false may
+  // reach the handler; fine-grained role checks (Empleado-only) and ownership
+  // enforcement live in the services.
+  //
+  // The QR-management route /api/v1/questionnaires/[id]/qr DOES start with
+  // 'questionnaires', so it is automatically covered by requiresQuestionnaireRole
+  // above (Empleado → 403). No additional proxy code is needed for that route.
+  // ---------------------------------------------------------------------------
   return NextResponse.next()
 }
 
