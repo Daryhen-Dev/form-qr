@@ -32,6 +32,11 @@ function requiresUserManagementRole(pathname: string): boolean {
   return pathname.startsWith('/api/v1/users')
 }
 
+/** Routes that require role ∈ {Administrador, Secretario} — Empleado denied. */
+function requiresQuestionnaireRole(pathname: string): boolean {
+  return pathname.startsWith('/api/v1/questionnaires')
+}
+
 export async function proxy(request: NextRequest): Promise<Response | NextResponse> {
   const { pathname } = request.nextUrl
 
@@ -69,7 +74,12 @@ export async function proxy(request: NextRequest): Promise<Response | NextRespon
     return Response.json({ error: 'insufficient_permissions' }, { status: 403 })
   }
 
-  // 6. Pass through — handlers re-verify the principal (defense-in-depth).
+  // 6. Coarse role gate for questionnaire-management routes: Empleado is denied.
+  if (requiresQuestionnaireRole(pathname) && claims.role === 'Empleado') {
+    return Response.json({ error: 'insufficient_permissions' }, { status: 403 })
+  }
+
+  // 7. Pass through — handlers re-verify the principal (defense-in-depth).
   return NextResponse.next()
 }
 
