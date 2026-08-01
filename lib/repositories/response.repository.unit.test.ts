@@ -209,3 +209,110 @@ describe('response.repository.findById', () => {
     )
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// replaceAnswers (Sub-PR 5c)
+// ---------------------------------------------------------------------------
+
+// Re-import for the new function once implemented
+import { replaceAnswers } from './response.repository'
+
+describe('response.repository.replaceAnswers', () => {
+  it('executes inside a $transaction', async () => {
+    const mockDeleteMany = vi.fn().mockResolvedValue({ count: 1 })
+    const mockCreateMany = vi.fn().mockResolvedValue({ count: 2 })
+    const mockUpdate = vi.fn().mockResolvedValue({
+      ...baseResponseRow,
+      updatedAt: new Date('2025-03-15T11:00:00Z'),
+    })
+    const mockFindUnique = vi.fn().mockResolvedValue({
+      ...baseResponseRow,
+      updatedAt: new Date('2025-03-15T11:00:00Z'),
+      answers: [
+        { id: 'ans_new_01', responseId: 'resp_01', questionId: 'qn_01', value: false },
+        { id: 'ans_new_02', responseId: 'resp_01', questionId: 'qn_02', value: 5 },
+      ],
+    })
+
+    mockTransaction.mockImplementation(async (fn: Parameters<typeof prisma.$transaction>[0]) => {
+      const mockTx = {
+        answer: { deleteMany: mockDeleteMany, createMany: mockCreateMany },
+        response: { update: mockUpdate, findUnique: mockFindUnique },
+      }
+      return (fn as (tx: unknown) => Promise<unknown>)(mockTx)
+    })
+
+    await replaceAnswers('resp_01', [
+      { questionId: 'qn_01', value: false },
+      { questionId: 'qn_02', value: 5 },
+    ])
+
+    expect(mockTransaction).toHaveBeenCalledOnce()
+    expect(mockDeleteMany).toHaveBeenCalledWith({ where: { responseId: 'resp_01' } })
+    expect(mockCreateMany).toHaveBeenCalledOnce()
+    expect(mockUpdate).toHaveBeenCalledOnce()
+  })
+
+  it('returns the updated response row with new answers', async () => {
+    const updatedRow = {
+      ...baseResponseRow,
+      updatedAt: new Date('2025-03-15T11:00:00Z'),
+      answers: [
+        { id: 'ans_new_01', responseId: 'resp_01', questionId: 'qn_01', value: false },
+      ],
+    }
+
+    mockTransaction.mockImplementation(async (fn: Parameters<typeof prisma.$transaction>[0]) => {
+      const mockTx = {
+        answer: {
+          deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        response: {
+          update: vi.fn().mockResolvedValue({ ...baseResponseRow, updatedAt: updatedRow.updatedAt }),
+          findUnique: vi.fn().mockResolvedValue(updatedRow),
+        },
+      }
+      return (fn as (tx: unknown) => Promise<unknown>)(mockTx)
+    })
+
+    const result = await replaceAnswers('resp_01', [{ questionId: 'qn_01', value: false }])
+    expect(result.updatedAt).toEqual(new Date('2025-03-15T11:00:00Z'))
+    expect(result.answers).toHaveLength(1)
+    expect(result.answers[0].value).toBe(false)
+  })
+
+  it('touches the response row to trigger @updatedAt', async () => {
+    const mockUpdateFn = vi.fn().mockResolvedValue({
+      ...baseResponseRow,
+      updatedAt: new Date('2025-03-15T11:00:00Z'),
+    })
+
+    mockTransaction.mockImplementation(async (fn: Parameters<typeof prisma.$transaction>[0]) => {
+      const mockTx = {
+        answer: {
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        response: {
+          update: mockUpdateFn,
+          findUnique: vi.fn().mockResolvedValue({
+            ...baseResponseRow,
+            updatedAt: new Date('2025-03-15T11:00:00Z'),
+            answers: [{ id: 'a1', responseId: 'resp_01', questionId: 'qn_01', value: true }],
+          }),
+        },
+      }
+      return (fn as (tx: unknown) => Promise<unknown>)(mockTx)
+    })
+
+    await replaceAnswers('resp_01', [{ questionId: 'qn_01', value: true }])
+    // The update call is there to touch updatedAt via @updatedAt
+    expect(mockUpdateFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'resp_01' },
+      })
+    )
+  })
+})

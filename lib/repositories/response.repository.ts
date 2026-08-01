@@ -108,6 +108,56 @@ export async function createWithAnswers(
 }
 
 // ---------------------------------------------------------------------------
+// replaceAnswers
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomically replaces all answers for a response in a single $transaction:
+ *  1. Deletes all existing Answer rows for the response.
+ *  2. Re-creates them with the new values.
+ *  3. Touches the Response row to trigger @updatedAt.
+ *  4. Returns the updated response with its new answers.
+ *
+ * @param responseId - The response whose answers are being replaced.
+ * @param answers    - The new answer payloads to persist.
+ * @returns Updated ResponseWithAnswers including refreshed updatedAt.
+ */
+export async function replaceAnswers(
+  responseId: string,
+  answers: AnswerData[]
+): Promise<ResponseWithAnswers> {
+  return prisma.$transaction(async (tx) => {
+    // 1. Delete all existing answers
+    await tx.answer.deleteMany({ where: { responseId } })
+
+    // 2. Re-create with new values
+    if (answers.length > 0) {
+      await tx.answer.createMany({
+        data: answers.map((a) => ({
+          responseId,
+          questionId: a.questionId,
+          value: a.value as never, // Prisma.InputJsonValue
+        })),
+      })
+    }
+
+    // 3. Touch the response row — Prisma @updatedAt fires on any update
+    await tx.response.update({
+      where: { id: responseId },
+      data: { updatedAt: new Date() },
+    })
+
+    // 4. Re-fetch with answers
+    const updated = await tx.response.findUnique({
+      where: { id: responseId },
+      include: { answers: true },
+    })
+
+    return updated as ResponseWithAnswers
+  })
+}
+
+// ---------------------------------------------------------------------------
 // findByUserQuestionnaireDay
 // ---------------------------------------------------------------------------
 

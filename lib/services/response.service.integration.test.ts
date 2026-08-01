@@ -366,3 +366,246 @@ describe('response.service integration — scan.service returns real status afte
     expect(scan.response).toBeNull()
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// Sub-PR 5c: GET + PATCH responses/[id] — ownership + edit-window
+// ---------------------------------------------------------------------------
+
+describe('response.service integration — get (ownership + status)', () => {
+  it('owner gets own response → 200 with answers and editable status', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const created = await create(principal, {
+      questionnaireId,
+      answers: [{ questionId: booleanQuestionId, type: 'boolean', value: true }],
+    })
+
+    // Import get dynamically to avoid module resolution issues
+    const { get } = await import('./response.service')
+    const dto = await get(principal, created.id)
+
+    expect(dto.id).toBe(created.id)
+    expect(dto.status).toBe(RESPONSE_STATUS.EDITABLE)
+    expect(dto.answers).toHaveLength(1)
+    expect(dto.answers[0].questionId).toBe(booleanQuestionId)
+    expect(dto.answers[0].value).toBe(true)
+  })
+
+  it('non-owner gets another Empleado response → 404 (anti-enumeration)', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const created = await create(principal, {
+      questionnaireId,
+      answers: [{ questionId: booleanQuestionId, type: 'boolean', value: true }],
+    })
+
+    // Create another Empleado
+    const otherUser = await prisma.user.create({
+      data: {
+        nombres: 'Other',
+        apellidos: 'Employee',
+        cedula: '99999999',
+        passwordHash: 'hash2',
+        role: 'Empleado',
+        passwordChangeRequired: false,
+      },
+    })
+
+    const { get } = await import('./response.service')
+    const otherPrincipal = makeEmpleadoPrincipal(otherUser.id)
+
+    await expect(get(otherPrincipal, created.id)).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'response_not_found',
+    })
+  })
+
+  it('GET response for closed window → status read_only', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const created = await create(principal, {
+      questionnaireId,
+      answers: [{ questionId: booleanQuestionId, type: 'boolean', value: true }],
+    })
+
+    // Advance past the edit window (businessDay 2025-03-15 → endUtc = 2025-03-16T04:59:59.999Z)
+    vi.setSystemTime(new Date('2025-03-16T05:00:00.000Z'))
+
+    const { get } = await import('./response.service')
+    const dto = await get(principal, created.id)
+    expect(dto.status).toBe(RESPONSE_STATUS.READ_ONLY)
+  })
+})
+
+describe('response.service integration — update (edit-window + audit)', () => {
+  it('PATCH within same business day → 200, answers replaced, updatedAt changed', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const created = await create(principal, {
+      questionnaireId,
+      answers: [
+        { questionId: booleanQuestionId, type: 'boolean', value: true },
+        { questionId: scaleQuestionId, type: 'scale', value: 3 },
+      ],
+    })
+
+    // Advance slightly (still within window)
+    vi.setSystemTime(new Date('2025-03-15T12:00:00.000Z'))
+
+    const { update } = await import('./response.service')
+    const updated = await update(principal, created.id, {
+      answers: [
+        { questionId: booleanQuestionId, type: 'boolean', value: false },
+        { questionId: scaleQuestionId, type: 'scale', value: 5 },
+      ],
+    })
+
+    expect(updated.id).toBe(created.id)
+    expect(updated.status).toBe(RESPONSE_STATUS.EDITABLE)
+
+    // updatedAt should be different from createdAt
+    expect(updated.updatedAt).not.toBe(created.updatedAt)
+
+    // Answers replaced
+    const boolAnswer = updated.answers.find((a) => a.questionId === booleanQuestionId)
+    expect(boolAnswer?.value).toBe(false)
+    const scaleAnswer = updated.answers.find((a) => a.questionId === scaleQuestionId)
+    expect(scaleAnswer?.value).toBe(5)
+
+    // Verify answers in DB
+    const dbAnswers = await prisma.answer.findMany({ where: { responseId: created.id } })
+    expect(dbAnswers).toHaveLength(2)
+    const dbBool = dbAnswers.find((a) => a.questionId === booleanQuestionId)
+    expect(dbBool?.value).toBe(false)
+  })
+
+  it('PATCH after window closes (businessDay in the past) → 409 edit_window_closed', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const created = await create(principal, {
+      questionnaireId,
+      answers: [{ questionId: booleanQuestionId, type: 'boolean', value: true }],
+    })
+
+    // Advance past the edit window: businessDay 2025-03-15 → endUtc = 2025-03-16T04:59:59.999Z
+    // Set to 05:00:00.000Z on 2025-03-16 → window closed
+    vi.setSystemTime(new Date('2025-03-16T05:00:00.000Z'))
+
+    const { update } = await import('./response.service')
+    await expect(
+      update(principal, created.id, {
+        answers: [{ questionId: booleanQuestionId, type: 'boolean', value: false }],
+      })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'edit_window_closed',
+    })
+  })
+
+  it('non-owner PATCH → 404', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const created = await create(principal, {
+      questionnaireId,
+      answers: [{ questionId: booleanQuestionId, type: 'boolean', value: true }],
+    })
+
+    const otherUser = await prisma.user.create({
+      data: {
+        nombres: 'Intruder',
+        apellidos: 'Emp',
+        cedula: '77777777',
+        passwordHash: 'hash3',
+        role: 'Empleado',
+        passwordChangeRequired: false,
+      },
+    })
+
+    const { update } = await import('./response.service')
+    const otherPrincipal = makeEmpleadoPrincipal(otherUser.id)
+
+    await expect(
+      update(otherPrincipal, created.id, {
+        answers: [{ questionId: booleanQuestionId, type: 'boolean', value: false }],
+      })
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'response_not_found',
+    })
+  })
+
+  it('AuditLog written with action response_updated on successful update', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const created = await create(principal, {
+      questionnaireId,
+      answers: [{ questionId: booleanQuestionId, type: 'boolean', value: true }],
+    })
+
+    vi.setSystemTime(new Date('2025-03-15T11:00:00.000Z'))
+
+    const { update } = await import('./response.service')
+    await update(principal, created.id, {
+      answers: [{ questionId: booleanQuestionId, type: 'boolean', value: false }],
+    })
+
+    const auditLogs = await prisma.auditLog.findMany({
+      where: { entityId: created.id, action: 'response_updated' },
+    })
+    expect(auditLogs).toHaveLength(1)
+    expect(auditLogs[0].action).toBe('response_updated')
+  })
+
+  it('PATCH with yesterday businessDay (via direct DB insert) → 409', async () => {
+    // This simulates a response whose businessDay is yesterday — the window is already closed
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-15T10:00:00.000Z'))
+
+    // Directly insert a response for yesterday's businessDay
+    const response = await prisma.response.create({
+      data: {
+        questionnaireId,
+        versionId,
+        userId: empleadoId,
+        businessDay: new Date('2025-03-14T00:00:00.000Z'), // yesterday
+      },
+    })
+
+    await prisma.answer.create({
+      data: {
+        responseId: response.id,
+        questionId: booleanQuestionId,
+        value: true,
+      },
+    })
+
+    const principal = makeEmpleadoPrincipal(empleadoId)
+    const { update } = await import('./response.service')
+
+    // businessDay 2025-03-14 → endUtc = 2025-03-15T04:59:59.999Z
+    // now = 2025-03-15T10:00:00Z → past the window → 409
+    await expect(
+      update(principal, response.id, {
+        answers: [{ questionId: booleanQuestionId, type: 'boolean', value: false }],
+      })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'edit_window_closed',
+    })
+  })
+})

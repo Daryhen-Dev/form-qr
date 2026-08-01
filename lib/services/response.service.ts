@@ -6,13 +6,15 @@ import { findById as findVersionById } from '@/lib/repositories/version.reposito
 import { findByVersion as findQuestionsByVersion } from '@/lib/repositories/question.repository'
 import {
   createWithAnswers,
+  findById as findResponseById,
+  replaceAnswers,
 } from '@/lib/repositories/response.repository'
 import { record as auditRecord } from '@/lib/repositories/audit.repository'
 import { ServiceError } from '@/lib/services/auth.service'
 import { utcToBusinessDay, businessDayWindowUtc } from '@/lib/utils/business-tz'
 import { RESPONSE_STATUS } from '@/lib/types'
 import type { Principal, ResponseDTO, AnswerDTO } from '@/lib/types'
-import type { CreateResponseInput, AnswerInput } from '@/lib/validations/response.schema'
+import type { CreateResponseInput, UpdateResponseInput, AnswerInput } from '@/lib/validations/response.schema'
 import type { QuestionRow } from '@/lib/repositories/question.repository'
 
 // ---------------------------------------------------------------------------
@@ -266,4 +268,125 @@ export async function create(
   }
 
   return toResponseDTO(rowWithAnswers, status)
+}
+
+// ---------------------------------------------------------------------------
+// get
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieves a response by id for the authenticated principal.
+ *
+ * Ownership check: if the response's userId does not match the principal,
+ * a 404 is returned (anti-enumeration — never 403 for non-owner; see Design D7).
+ *
+ * Status is derived from businessDayWindowUtc:
+ *  - editable  if now <= endUtc
+ *  - read_only if now > endUtc
+ *
+ * @param principal Authenticated caller.
+ * @param id       Response id.
+ * @returns ResponseDTO with status and answers.
+ * @throws ServiceError(404) if not found or not owned by the caller.
+ */
+export async function get(
+  principal: Principal,
+  id: string
+): Promise<ResponseDTO> {
+  const row = await findResponseById(id)
+  if (!row) {
+    throw new ServiceError(404, 'response_not_found')
+  }
+
+  // Ownership check — non-owner gets 404 (anti-enumeration, Design D7)
+  if (row.userId !== principal.userId) {
+    throw new ServiceError(404, 'response_not_found')
+  }
+
+  // Derive status from the edit window
+  const businessDayStr = row.businessDay.toISOString().slice(0, 10)
+  const { endUtc } = businessDayWindowUtc(businessDayStr)
+  const now = new Date()
+  const status = now.getTime() <= endUtc.getTime()
+    ? RESPONSE_STATUS.EDITABLE
+    : RESPONSE_STATUS.READ_ONLY
+
+  return toResponseDTO(row, status)
+}
+
+// ---------------------------------------------------------------------------
+// update
+// ---------------------------------------------------------------------------
+
+/**
+ * Updates a response's answers within the edit window.
+ *
+ * Ordered validation gates:
+ *  1. Load response by id — else 404.
+ *  2. Ownership check (response.userId === principal.userId) — else 404 (anti-enum).
+ *  3. Compute endUtc from response.businessDay; if now > endUtc → 409 edit_window_closed.
+ *  4. Load the bound version's questions; run validateAnswersAgainstVersion — else 422.
+ *  5. Atomically replace answers (replaceAnswers in repo).
+ *  6. Write AuditLog with action 'response_updated'.
+ *  7. Return updated ResponseDTO with status.
+ *
+ * @param principal Authenticated caller.
+ * @param id       Response id.
+ * @param body     Validated update-response body (from updateResponseSchema.parse).
+ * @returns Updated ResponseDTO.
+ * @throws ServiceError on any validation failure.
+ */
+export async function update(
+  principal: Principal,
+  id: string,
+  body: UpdateResponseInput
+): Promise<ResponseDTO> {
+  // Gate 1: load response
+  const row = await findResponseById(id)
+  if (!row) {
+    throw new ServiceError(404, 'response_not_found')
+  }
+
+  // Gate 2: ownership
+  if (row.userId !== principal.userId) {
+    throw new ServiceError(404, 'response_not_found')
+  }
+
+  // Gate 3: edit-window check
+  const businessDayStr = row.businessDay.toISOString().slice(0, 10)
+  const { endUtc } = businessDayWindowUtc(businessDayStr)
+  const now = new Date()
+  if (now.getTime() > endUtc.getTime()) {
+    throw new ServiceError(409, 'edit_window_closed')
+  }
+
+  // Gate 4: load version questions and validate answers against config
+  const questions = await findQuestionsByVersion(row.versionId)
+  validateAnswersAgainstVersion(questions, body.answers)
+
+  // Gate 5: atomic replace
+  const updatedRow = await replaceAnswers(
+    id,
+    body.answers.map((a) => ({ questionId: a.questionId, value: a.value }))
+  )
+
+  // Gate 6: audit
+  await auditRecord({
+    action: 'response_updated',
+    entityType: 'Response',
+    entityId: id,
+    metadata: {
+      updatedBy: principal.userId,
+      questionnaireId: row.questionnaireId,
+      versionId: row.versionId,
+      businessDay: businessDayStr,
+    },
+  })
+
+  // Gate 7: derive status and return DTO
+  const status = now.getTime() <= endUtc.getTime()
+    ? RESPONSE_STATUS.EDITABLE
+    : RESPONSE_STATUS.READ_ONLY
+
+  return toResponseDTO(updatedRow, status)
 }
