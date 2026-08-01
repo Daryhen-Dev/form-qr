@@ -298,3 +298,119 @@ describe('questionnaire.service.getVersion — with questions', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// 4b.6 — TDD RED: immutability guard — setVersionQuestions on published version → 409
+// NOTE: This section is added after 4a tests. The setVersionQuestions import
+// will fail until 4b.3 implements it (RED → GREEN pattern).
+// ---------------------------------------------------------------------------
+
+// The import is intentionally placed here so the existing tests above are
+// unaffected if setVersionQuestions is not yet exported.
+import { setVersionQuestions } from './questionnaire.service'
+import {
+  findById as questionnaireRepofindById4b,
+} from '@/lib/repositories/questionnaire.repository'
+import {
+  findById as versionRepofindById4b,
+} from '@/lib/repositories/version.repository'
+import {
+  replaceForVersion as repoReplaceForVersion,
+} from '@/lib/repositories/question.repository'
+
+const mockQuestionnaireRepofindById4b = vi.mocked(questionnaireRepofindById4b)
+const mockVersionRepofindById4b = vi.mocked(versionRepofindById4b)
+const mockReplaceForVersion = vi.mocked(repoReplaceForVersion)
+
+const adminPrincipal4b: Principal = { userId: 'admin_01', role: 'Administrador', passwordChangeRequired: false }
+const empleadoPrincipal4b: Principal = { userId: 'emp_01', role: 'Empleado', passwordChangeRequired: false }
+
+const baseQuestionnaire4b = {
+  id: 'q_01',
+  title: 'Test Template',
+  description: null,
+  currentVersionId: 'v_01',
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
+  deletedAt: null,
+}
+
+const draftVersion4b = {
+  id: 'v_01',
+  questionnaireId: 'q_01',
+  versionNumber: 1,
+  status: 'draft' as const,
+  publishedAt: null,
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
+}
+
+const publishedVersion4b = {
+  ...draftVersion4b,
+  status: 'published' as const,
+  publishedAt: new Date('2026-01-02T00:00:00Z'),
+}
+
+const sampleQuestion = {
+  order: 1,
+  prompt: 'Are you ok?',
+  required: false,
+  type: 'boolean' as const,
+  config: {},
+}
+
+describe('questionnaire.service.setVersionQuestions — immutability guard (4b.6)', () => {
+  it('Empleado CANNOT set questions → throws 403', async () => {
+    await expect(
+      setVersionQuestions(empleadoPrincipal4b, 'q_01', 'v_01', { questions: [sampleQuestion] })
+    ).rejects.toMatchObject({ statusCode: 403 })
+    expect(mockReplaceForVersion).not.toHaveBeenCalled()
+  })
+
+  it('setVersionQuestions on a published version → throws 409 version_immutable', async () => {
+    mockQuestionnaireRepofindById4b.mockResolvedValueOnce(baseQuestionnaire4b)
+    mockVersionRepofindById4b.mockResolvedValueOnce(publishedVersion4b)
+
+    await expect(
+      setVersionQuestions(adminPrincipal4b, 'q_01', 'v_01', { questions: [sampleQuestion] })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'version_immutable',
+    })
+
+    expect(mockReplaceForVersion).not.toHaveBeenCalled()
+  })
+
+  it('setVersionQuestions on a draft version → calls replaceForVersion', async () => {
+    mockQuestionnaireRepofindById4b.mockResolvedValueOnce(baseQuestionnaire4b)
+    mockVersionRepofindById4b.mockResolvedValueOnce(draftVersion4b)
+    mockReplaceForVersion.mockResolvedValueOnce([
+      { id: 'q1', versionId: 'v_01', order: 1, type: 'boolean', prompt: 'Are you ok?', required: false, config: {} },
+    ])
+
+    const result = await setVersionQuestions(adminPrincipal4b, 'q_01', 'v_01', {
+      questions: [sampleQuestion],
+    })
+
+    expect(mockReplaceForVersion).toHaveBeenCalledOnce()
+    expect(result.questions).toHaveLength(1)
+  })
+
+  it('setVersionQuestions on version belonging to different questionnaire → throws 404', async () => {
+    mockQuestionnaireRepofindById4b.mockResolvedValueOnce(baseQuestionnaire4b)
+    const wrongVersion = { ...draftVersion4b, questionnaireId: 'other_q' }
+    mockVersionRepofindById4b.mockResolvedValueOnce(wrongVersion)
+
+    await expect(
+      setVersionQuestions(adminPrincipal4b, 'q_01', 'v_01', { questions: [sampleQuestion] })
+    ).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('setVersionQuestions on nonexistent questionnaire → throws 404', async () => {
+    mockQuestionnaireRepofindById4b.mockResolvedValueOnce(null)
+
+    await expect(
+      setVersionQuestions(adminPrincipal4b, 'q_01', 'v_01', { questions: [sampleQuestion] })
+    ).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
