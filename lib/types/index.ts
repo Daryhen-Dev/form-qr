@@ -259,3 +259,15 @@ export interface ScanResolutionDTO {
   /** Existing response for today, or null when absent. Populated in 5b. */
   response: ResponseDTO | null
 }
+
+/**
+ * Presigned PUT URL DTO — returned by POST /api/v1/uploads/presign.
+ * Contains the presigned URL for direct upload and the server-issued object key
+ * that the client must use as the answer value for the photo/file question.
+ */
+export interface PresignDTO {
+  /** Presigned PUT URL for direct upload to object storage. */
+  uploadUrl: string
+  /** Server-issued object key — must be used as-is in the answer value. */
+  objectKey: string
+}
