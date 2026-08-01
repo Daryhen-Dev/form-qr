@@ -288,3 +288,74 @@ describe('proxy.ts — branch gate', () => {
     expect(res.status).not.toBe(403)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Sub-PR 5a: Empleado-reachable routes (scan / responses / uploads)
+// ---------------------------------------------------------------------------
+
+describe('proxy.ts — 5a Empleado-reachable routes', () => {
+  beforeEach(() => {
+    mockVerify.mockReset()
+  })
+
+  // --- /api/v1/scan/* is intentionally Empleado-reachable ---
+  it('Empleado with valid token on /api/v1/scan/some-token → passes through (not 403)', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/scan/some-token', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(403)
+    expect(res.status).not.toBe(401)
+  })
+
+  it('Administrador with valid token on /api/v1/scan/some-token → passes through', async () => {
+    mockVerify.mockResolvedValue(validAdminClaims)
+    const req = makeRequest('/api/v1/scan/some-token', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(403)
+    expect(res.status).not.toBe(401)
+  })
+
+  it('missing token on /api/v1/scan/some-token → 401', async () => {
+    const req = makeRequest('/api/v1/scan/some-token')
+    const res = await proxy(req)
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe('unauthorized')
+  })
+
+  // --- /api/v1/questionnaires/[id]/qr is Admin/Sec only (falls under questionnaires* gate) ---
+  it('Empleado on /api/v1/questionnaires/some-id/qr → 403 (questionnaires* gate)', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/questionnaires/some-id/qr', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toBe('insufficient_permissions')
+  })
+
+  it('Administrador on /api/v1/questionnaires/some-id/qr → passes through', async () => {
+    mockVerify.mockResolvedValue(validAdminClaims)
+    const req = makeRequest('/api/v1/questionnaires/some-id/qr', { headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(403)
+  })
+
+  // --- /api/v1/responses/* is Empleado-reachable (Sub-PR 5b) ---
+  it('Empleado with valid token on /api/v1/responses → passes through', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/responses', { method: 'POST', headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(403)
+    expect(res.status).not.toBe(401)
+  })
+
+  // --- /api/v1/uploads/* is Empleado-reachable (Sub-PR 5d) ---
+  it('Empleado with valid token on /api/v1/uploads/presign → passes through', async () => {
+    mockVerify.mockResolvedValue(validEmpClaims)
+    const req = makeRequest('/api/v1/uploads/presign', { method: 'POST', headers: bearerHeaders('valid') })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(403)
+    expect(res.status).not.toBe(401)
+  })
+})
