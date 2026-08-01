@@ -43,6 +43,12 @@ vi.mock('@/lib/repositories/response.repository', () => ({
 vi.mock('@/lib/repositories/audit.repository', () => ({
   record: vi.fn(),
 }))
+vi.mock('@/lib/services/storage.service', () => ({
+  expectedKeyPrefix: vi.fn().mockImplementation(
+    (templateId: string, versionId: string, questionId: string, ownerId: string) =>
+      `questionnaires/${templateId}/versions/${versionId}/questions/${questionId}/${ownerId}/`
+  ),
+}))
 
 import { findById as findQuestionnaire } from '@/lib/repositories/questionnaire.repository'
 import { findActiveByUser } from '@/lib/repositories/branch-assignment.repository'
@@ -350,7 +356,7 @@ describe('response.service.create — answer config validation', () => {
     })
   })
 
-  it('photo answer with non-empty string → passes (key-prefix check deferred to 5d)', async () => {
+  it('photo answer with valid owner-scoped key prefix → passes', async () => {
     mockFindQuestionsByVersion.mockResolvedValue([
       {
         id: 'qn_photo',
@@ -365,10 +371,10 @@ describe('response.service.create — answer config validation', () => {
     const body = {
       questionnaireId: 'q_01',
       answers: [
-        { questionId: 'qn_photo', type: 'photo' as const, value: 'any/key.jpg' },
+        { questionId: 'qn_photo', type: 'photo' as const, value: 'questionnaires/q_01/versions/v_01/questions/qn_photo/emp_01/some-uuid.jpg' },
       ],
     }
-    // Should not throw — key-prefix ownership check comes in 5d
+    // Key prefix matches → passes
     await expect(create(empleadoPrincipal, body)).resolves.toBeDefined()
   })
 })
@@ -633,5 +639,184 @@ describe('response.service.update — edit-window + ownership', () => {
       statusCode: 422,
     })
     expect(mockReplaceAnswers).not.toHaveBeenCalled()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Key-prefix validation for photo/file answers (Sub-PR 5d)
+// ---------------------------------------------------------------------------
+
+describe('response.service.create — key-prefix validation (5d)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(MOCK_NOW_UTC)
+    setupHappyPath()
+  })
+
+  it('photo answer with matching owner-scoped key prefix → accepted', async () => {
+    mockFindQuestionsByVersion.mockResolvedValue([
+      {
+        id: 'qn_photo',
+        versionId: 'v_01',
+        order: 1,
+        type: 'photo' as const,
+        prompt: 'Upload photo',
+        required: false,
+        config: {},
+      },
+    ])
+    const body = {
+      questionnaireId: 'q_01',
+      answers: [
+        {
+          questionId: 'qn_photo',
+          type: 'photo' as const,
+          value: 'questionnaires/q_01/versions/v_01/questions/qn_photo/emp_01/some-uuid',
+        },
+      ],
+    }
+    await expect(create(empleadoPrincipal, body)).resolves.toBeDefined()
+  })
+
+  it('photo answer with arbitrary/borrowed key → throws 422 invalid_object_key', async () => {
+    mockFindQuestionsByVersion.mockResolvedValue([
+      {
+        id: 'qn_photo',
+        versionId: 'v_01',
+        order: 1,
+        type: 'photo' as const,
+        prompt: 'Upload photo',
+        required: false,
+        config: {},
+      },
+    ])
+    const body = {
+      questionnaireId: 'q_01',
+      answers: [
+        {
+          questionId: 'qn_photo',
+          type: 'photo' as const,
+          value: 'questionnaires/q_01/versions/v_01/questions/qn_photo/other_user/some-uuid',
+        },
+      ],
+    }
+    await expect(create(empleadoPrincipal, body)).rejects.toMatchObject({
+      statusCode: 422,
+      message: 'invalid_object_key',
+    })
+  })
+
+  it('file answer with matching owner prefix → accepted', async () => {
+    mockFindQuestionsByVersion.mockResolvedValue([
+      {
+        id: 'qn_file',
+        versionId: 'v_01',
+        order: 1,
+        type: 'file' as const,
+        prompt: 'Upload file',
+        required: false,
+        config: {},
+      },
+    ])
+    const body = {
+      questionnaireId: 'q_01',
+      answers: [
+        {
+          questionId: 'qn_file',
+          type: 'file' as const,
+          value: 'questionnaires/q_01/versions/v_01/questions/qn_file/emp_01/some-uuid',
+        },
+      ],
+    }
+    await expect(create(empleadoPrincipal, body)).resolves.toBeDefined()
+  })
+
+  it('file answer with completely wrong key → throws 422 invalid_object_key', async () => {
+    mockFindQuestionsByVersion.mockResolvedValue([
+      {
+        id: 'qn_file',
+        versionId: 'v_01',
+        order: 1,
+        type: 'file' as const,
+        prompt: 'Upload file',
+        required: false,
+        config: {},
+      },
+    ])
+    const body = {
+      questionnaireId: 'q_01',
+      answers: [
+        {
+          questionId: 'qn_file',
+          type: 'file' as const,
+          value: 'arbitrary/path/to/file.pdf',
+        },
+      ],
+    }
+    await expect(create(empleadoPrincipal, body)).rejects.toMatchObject({
+      statusCode: 422,
+      message: 'invalid_object_key',
+    })
+  })
+})
+
+describe('response.service.update — key-prefix validation (5d)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(MOCK_NOW_UTC)
+    mockFindResponseById.mockResolvedValue({
+      ...baseResponseRow,
+      answers: [{ id: 'ans_01', responseId: 'resp_01', questionId: 'qn_photo', value: 'old-key' }],
+    })
+    mockFindVersionById.mockResolvedValue(baseVersion)
+    mockFindQuestionsByVersion.mockResolvedValue([
+      {
+        id: 'qn_photo',
+        versionId: 'v_01',
+        order: 1,
+        type: 'photo' as const,
+        prompt: 'Upload photo',
+        required: false,
+        config: {},
+      },
+    ])
+    mockReplaceAnswers.mockResolvedValue({
+      ...baseResponseRow,
+      updatedAt: new Date('2025-03-15T10:05:00Z'),
+      answers: [{ id: 'ans_new', responseId: 'resp_01', questionId: 'qn_photo', value: 'new-key' }],
+    })
+    mockAuditRecord.mockResolvedValue(undefined)
+  })
+
+  it('update with matching owner key → passes', async () => {
+    const body = {
+      answers: [
+        {
+          questionId: 'qn_photo',
+          type: 'photo' as const,
+          value: 'questionnaires/q_01/versions/v_01/questions/qn_photo/emp_01/uuid-new',
+        },
+      ],
+    }
+    await expect(update(empleadoPrincipal, 'resp_01', body)).resolves.toBeDefined()
+  })
+
+  it('update with arbitrary key → throws 422 invalid_object_key', async () => {
+    const body = {
+      answers: [
+        {
+          questionId: 'qn_photo',
+          type: 'photo' as const,
+          value: 'questionnaires/q_01/versions/v_01/questions/qn_photo/other_emp/uuid-stolen',
+        },
+      ],
+    }
+    await expect(update(empleadoPrincipal, 'resp_01', body)).rejects.toMatchObject({
+      statusCode: 422,
+      message: 'invalid_object_key',
+    })
   })
 })

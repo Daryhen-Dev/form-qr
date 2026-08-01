@@ -11,6 +11,7 @@ import {
 } from '@/lib/repositories/response.repository'
 import { record as auditRecord } from '@/lib/repositories/audit.repository'
 import { ServiceError } from '@/lib/services/auth.service'
+import { expectedKeyPrefix } from '@/lib/services/storage.service'
 import { utcToBusinessDay, businessDayWindowUtc } from '@/lib/utils/business-tz'
 import { RESPONSE_STATUS } from '@/lib/types'
 import type { Principal, ResponseDTO, AnswerDTO } from '@/lib/types'
@@ -68,13 +69,14 @@ function toResponseDTO(
  *   - single_choice / multiple_choice: option id(s) must exist in config.options
  *   - scale: value must be within [config.min, config.max]
  *   - number: value must be within [config.min, config.max] if set
- *   - photo / file: value must be a non-empty string (key-prefix ownership checked in 5d)
+ *   - photo / file: value must startWith the owner-scoped key prefix (5d)
  *
  * @throws ServiceError(422) on any config violation.
  */
 function validateAnswersAgainstVersion(
   questions: QuestionRow[],
-  answers: AnswerInput[]
+  answers: AnswerInput[],
+  context: { questionnaireId: string; versionId: string; ownerId: string }
 ): void {
   const answersByQuestionId = new Map<string, AnswerInput>()
   for (const a of answers) {
@@ -147,8 +149,16 @@ function validateAnswersAgainstVersion(
       case 'photo':
       case 'file': {
         // value is already validated as non-empty string by Zod
-        // TODO (5d): assert value startsWith the owner-scoped key prefix
-        // For 5b, any non-empty string is accepted (key-prefix ownership check arrives in 5d)
+        // Assert value startsWith the owner-scoped key prefix (5d)
+        const prefix = expectedKeyPrefix(
+          context.questionnaireId,
+          context.versionId,
+          question.id,
+          context.ownerId
+        )
+        if (!(answer.value as string).startsWith(prefix)) {
+          throw new ServiceError(422, 'invalid_object_key')
+        }
         break
       }
 
@@ -229,7 +239,11 @@ export async function create(
 
   // Gate 7: load questions and run service-level config validation
   const questions = await findQuestionsByVersion(version.id)
-  validateAnswersAgainstVersion(questions, body.answers)
+  validateAnswersAgainstVersion(questions, body.answers, {
+    questionnaireId: questionnaire.id,
+    versionId: version.id,
+    ownerId: principal.userId,
+  })
 
   // Gate 8: create atomically (P2002 → ServiceError(409) from repo)
   const responseRow = await createWithAnswers(
@@ -362,7 +376,11 @@ export async function update(
 
   // Gate 4: load version questions and validate answers against config
   const questions = await findQuestionsByVersion(row.versionId)
-  validateAnswersAgainstVersion(questions, body.answers)
+  validateAnswersAgainstVersion(questions, body.answers, {
+    questionnaireId: row.questionnaireId,
+    versionId: row.versionId,
+    ownerId: principal.userId,
+  })
 
   // Gate 5: atomic replace
   const updatedRow = await replaceAnswers(

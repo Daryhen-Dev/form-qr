@@ -19,9 +19,11 @@ export interface StorageService {
    * Generates a deterministic upload key for a question's binary attachment.
    * No network I/O — pure string composition with a unique suffix.
    *
-   * Pattern: questionnaires/{templateId}/versions/{versionId}/questions/{questionId}/{cuid}
+   * When ownerId is provided, the key includes an owner segment for scoping.
+   * Pattern (with owner): questionnaires/{templateId}/versions/{versionId}/questions/{questionId}/{ownerId}/{uuid}
+   * Pattern (without):    questionnaires/{templateId}/versions/{versionId}/questions/{questionId}/{uuid}
    */
-  generateUploadKey(templateId: string, versionId: string, questionId: string): string
+  generateUploadKey(templateId: string, versionId: string, questionId: string, ownerId?: string): string
 
   /**
    * Builds a public URL from STORAGE_PUBLIC_URL + key.
@@ -43,17 +45,44 @@ export interface StorageService {
 
 /**
  * Generates a deterministic upload key for a question's binary attachment.
- * Pattern: questionnaires/{templateId}/versions/{versionId}/questions/{questionId}/{cuid}
+ *
+ * When `ownerId` is provided (5d owner-scoped key):
+ *   Pattern: questionnaires/{templateId}/versions/{versionId}/questions/{questionId}/{ownerId}/{uuid}
+ *
+ * When `ownerId` is omitted (backward-compatible with S4 callers):
+ *   Pattern: questionnaires/{templateId}/versions/{versionId}/questions/{questionId}/{uuid}
  *
  * The prefix is stable and deterministic (same inputs → same prefix).
- * Each call appends a fresh cuid so the full key is unique per upload.
+ * Each call appends a fresh uuid so the full key is unique per upload.
  */
 export function generateUploadKey(
   templateId: string,
   versionId: string,
-  questionId: string
+  questionId: string,
+  ownerId?: string
 ): string {
-  return `questionnaires/${templateId}/versions/${versionId}/questions/${questionId}/${crypto.randomUUID()}`
+  const base = `questionnaires/${templateId}/versions/${versionId}/questions/${questionId}`
+  if (ownerId) {
+    return `${base}/${ownerId}/${crypto.randomUUID()}`
+  }
+  return `${base}/${crypto.randomUUID()}`
+}
+
+/**
+ * Returns the deterministic prefix for an owner-scoped upload key, WITHOUT
+ * the trailing uuid suffix. Used by answer validation to assert that a
+ * photo/file answer value was issued by the server for the correct
+ * (questionnaire, version, question, owner) tuple.
+ *
+ * Pattern: questionnaires/{templateId}/versions/{versionId}/questions/{questionId}/{ownerId}/
+ */
+export function expectedKeyPrefix(
+  templateId: string,
+  versionId: string,
+  questionId: string,
+  ownerId: string
+): string {
+  return `questionnaires/${templateId}/versions/${versionId}/questions/${questionId}/${ownerId}/`
 }
 
 /**
@@ -147,8 +176,8 @@ class S3CompatibleAdapter implements StorageService {
     })
   }
 
-  generateUploadKey(templateId: string, versionId: string, questionId: string): string {
-    return generateUploadKey(templateId, versionId, questionId)
+  generateUploadKey(templateId: string, versionId: string, questionId: string, ownerId?: string): string {
+    return generateUploadKey(templateId, versionId, questionId, ownerId)
   }
 
   getObjectUrl(key: string): string {
