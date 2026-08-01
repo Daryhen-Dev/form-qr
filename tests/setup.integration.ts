@@ -41,8 +41,9 @@ globalForPrisma.__prisma = prisma
 beforeEach(async () => {
   // Truncate all tables and restart identity sequences between tests.
   // Order matters: RefreshToken references User, so User must be truncated after RefreshToken.
+  // Questionnaire tables added in Slice 4 (FK-safe CASCADE order).
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "RefreshToken", "User", "AuditLog" RESTART IDENTITY CASCADE'
+    'TRUNCATE TABLE "QuestionnaireBranch", "Question", "QuestionnaireVersion", "Questionnaire", "RefreshToken", "User", "AuditLog" RESTART IDENTITY CASCADE'
   )
 })
 
