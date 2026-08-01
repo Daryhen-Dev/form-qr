@@ -34,6 +34,21 @@ function isPrismaUniqueViolation(err: unknown): boolean {
 }
 
 /**
+ * Returns true if err is a Prisma serialization failure (P2034).
+ * Occurs under SERIALIZABLE isolation when two concurrent transactions conflict.
+ * PostgreSQL raises SQLSTATE 40001 (serialization failure) or 40P01 (deadlock).
+ * Both are mapped to P2034 by Prisma.
+ */
+function isPrismaSerializationFailure(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code: string }).code === 'P2034'
+  )
+}
+
+/**
  * Returns the currently active (unassignedAt IS NULL) assignment for a user.
  * Returns null when the user has no active branch.
  */
@@ -105,7 +120,7 @@ export async function reassign(
 
     return created as AssignmentRow
   } catch (err) {
-    if (isPrismaUniqueViolation(err)) {
+    if (isPrismaUniqueViolation(err) || isPrismaSerializationFailure(err)) {
       throw new AssignmentConflictError()
     }
     throw err

@@ -32,6 +32,15 @@ function requiresUserManagementRole(pathname: string): boolean {
   return pathname.startsWith('/api/v1/users')
 }
 
+/**
+ * Routes that require role ∈ {Administrador, Secretario} for branch management.
+ * Empleado is blocked at the coarse gate; fine-grained checks (Admin-only create/update/delete)
+ * are re-asserted in the service layer (defense-in-depth).
+ */
+function requiresBranchManagementRole(pathname: string): boolean {
+  return pathname.startsWith('/api/v1/branches')
+}
+
 export async function proxy(request: NextRequest): Promise<Response | NextResponse> {
   const { pathname } = request.nextUrl
 
@@ -69,7 +78,13 @@ export async function proxy(request: NextRequest): Promise<Response | NextRespon
     return Response.json({ error: 'insufficient_permissions' }, { status: 403 })
   }
 
-  // 6. Pass through — handlers re-verify the principal (defense-in-depth).
+  // 6. Coarse role gate for branch-management routes: Empleado is denied.
+  //    Admin-only operations (create/update/delete) are further restricted in services.
+  if (requiresBranchManagementRole(pathname) && claims.role === 'Empleado') {
+    return Response.json({ error: 'insufficient_permissions' }, { status: 403 })
+  }
+
+  // 7. Pass through — handlers re-verify the principal (defense-in-depth).
   return NextResponse.next()
 }
 
