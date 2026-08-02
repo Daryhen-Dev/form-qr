@@ -25,6 +25,19 @@ export default defineConfig({
       {
         plugins: [tsconfigPaths()],
         test: {
+          name: 'ui',
+          environment: 'jsdom',
+          include: ['**/*.ui.test.tsx'],
+          exclude: ['node_modules/**'],
+          setupFiles: ['tests/setup.dom.ts'],
+          env: {
+            NODE_ENV: 'test',
+          },
+        },
+      },
+      {
+        plugins: [tsconfigPaths()],
+        test: {
           name: 'integration',
           environment: 'node',
           include: ['**/*.integration.test.ts'],

@@ -4,7 +4,7 @@ import { listTemplatesForBranch } from '@/lib/services/questionnaire-branch.serv
 import { ServiceError } from '@/lib/services/auth.service'
 
 /**
- * GET /api/v1/branches/[branchId]/questionnaires
+ * GET /api/v1/branches/[id]/questionnaires
  * Lists all questionnaire templates assigned to a branch.
  * Returns 200 { assignments: QuestionnaireBranchDTO[] } on success.
  * Returns 401 if unauthenticated.
@@ -16,7 +16,7 @@ import { ServiceError } from '@/lib/services/auth.service'
  */
 export async function GET(
   request: NextRequest,
-  ctx: { params: Promise<{ branchId: string }> }
+  ctx: { params: Promise<{ id: string }> }
 ): Promise<Response> {
   let principal: Awaited<ReturnType<typeof requirePrincipal>>
   try {
@@ -25,10 +25,10 @@ export async function GET(
     return errResponse as Response
   }
 
-  const { branchId } = await ctx.params
+  const { id } = await ctx.params
 
   try {
-    const assignments = await listTemplatesForBranch(principal, branchId)
+    const assignments = await listTemplatesForBranch(principal, id)
     return Response.json({ assignments }, { status: 200 })
   } catch (err) {
     if (err instanceof ServiceError) {
