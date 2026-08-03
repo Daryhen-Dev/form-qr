@@ -14,7 +14,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
-          include: ['**/*.unit.test.ts'],
+          include: ['**/*.unit.test.ts', '**/*.pbt.test.ts'],
           exclude: ['node_modules/**'],
           setupFiles: ['tests/setup.unit.ts'],
           env: {
@@ -27,7 +27,7 @@ export default defineConfig({
         test: {
           name: 'ui',
           environment: 'jsdom',
-          include: ['**/*.ui.test.tsx'],
+          include: ['**/*.ui.test.tsx', '**/*.pbt.test.tsx'],
           exclude: ['node_modules/**'],
           setupFiles: ['tests/setup.dom.ts'],
           env: {
