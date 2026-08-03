@@ -3,7 +3,7 @@ import { expect, test, type Page, type Route } from "@playwright/test"
 const RESTRICTED_LOGIN_PAYLOAD = {
   accessToken: "restricted-access-token",
   refreshToken: "restricted-refresh-token",
-  user: { id: "user-1", cedula: "123456" },
+  user: { id: "user-1", cedula: "123456", role: "Administrador" },
   passwordChangeRequired: true,
 } as const
 
