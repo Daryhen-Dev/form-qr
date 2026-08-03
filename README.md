@@ -1,10 +1,10 @@
 # form-qr
 
-form-qr is an API-first questionnaire and QR response system for Ecuadorian branches. The backend is the product surface: administrators and secretaries manage branches, users, questionnaires, versions, assignments, and reports; employees scan assigned questionnaires and submit one daily response. The UI is intentionally not implemented yet (`app/page.tsx` is still the starter page).
+form-qr is an operational web UI and API for questionnaire and QR response management across Ecuadorian branches. The browser interface provides role-based login, a mandatory password-change flow for newly seeded users, user and branch administration, questionnaire and QR management, employee QR response submission, and reports. It consumes the existing `/api/v1` endpoints; this documentation closeout does not introduce a backend feature change.
 
 ## Architecture
 
-The system follows `route handlers → services → repositories → Prisma/PostgreSQL`. Route handlers authenticate, validate, and map HTTP responses; services enforce authorization and business rules; repositories are the database boundary. QR scans resolve a published version for an employee's active branch. Business dates use `America/Guayaquil`.
+The browser UI consumes the existing `/api/v1` API, which follows `route handlers → services → repositories → Prisma/PostgreSQL`. Route handlers authenticate, validate, and map HTTP responses; services enforce authorization and business rules; repositories are the database boundary. QR scans resolve a published version for an employee's active branch. Business dates use `America/Guayaquil`.
 
 ## Roles
 
@@ -35,7 +35,7 @@ pnpm db:seed
 pnpm dev
 ```
 
-Open `http://localhost:3000` only to see the starter page; use the REST API at `http://localhost:3000/api/v1`. The local database is PostgreSQL on port `5433`. MinIO runs at `http://localhost:9000`, with its console at `http://localhost:9001`.
+Open `http://localhost:3000` to use the operational UI. Sign in with a seeded account; a user signing in with the initial password must complete the password-change flow before accessing operational pages. The UI consumes the existing `/api/v1` endpoints, while the direct API examples below remain available for integration and smoke testing. The local database is PostgreSQL on port `5433`. MinIO runs at `http://localhost:9000`, with its console at `http://localhost:9001`.
 
 ## Environment variables
 
@@ -164,4 +164,4 @@ pnpm lint
 pnpm build
 ```
 
-There is no visual login or dashboard yet; `app/page.tsx` is a starter page. The supported workflow is REST-first. Upload questions require a reachable S3-compatible storage service and the `form-qr` MinIO bucket created in the console. Never expose demo credentials outside local development, and replace JWT and storage secrets before deploying.
+The operational UI provides role-specific pages for user and branch administration, questionnaire, version, and QR management, employee QR response submission, and reports. It consumes the existing `/api/v1` endpoints; the API examples remain supported for integration and smoke testing. Upload questions require a reachable S3-compatible storage service and the `form-qr` MinIO bucket created in the console. Never expose demo credentials outside local development, and replace JWT and storage secrets before deploying.
