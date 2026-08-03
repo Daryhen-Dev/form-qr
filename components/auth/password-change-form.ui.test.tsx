@@ -78,24 +78,18 @@ function stubDeferredFetch(): DeferredFetch {
 
 // Base JSON response builder shared by every terminal branch.
 function createJsonResponse(status: number, payload: unknown): Response {
-  const body = JSON.stringify(payload)
-
-  return {
+  return new Response(JSON.stringify(payload), {
     status,
-    json: async () => payload,
-    text: async () => body,
-  } as Response
+    headers: { "Content-Type": "application/json" },
+  })
 }
 
 // 200 whose body fails to decode, exercising the safe retryable path (Req 4.9).
 function createInvalidJsonResponse(status = 200): Response {
-  return {
+  return new Response("<<not-json>>", {
     status,
-    json: async () => {
-      throw new SyntaxError("Unexpected token < in JSON")
-    },
-    text: async () => "<<not-json>>",
-  } as Response
+    headers: { "Content-Type": "application/json" },
+  })
 }
 
 // Every terminal Respuesta_de_Cambio branch built from the shared JSON builder.

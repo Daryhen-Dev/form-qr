@@ -2,6 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
   LOGIN_FIELD,
+  type LoginField,
   SESSION_AVAILABILITY,
   buildLoginRequest,
   canSubmit,
@@ -40,10 +41,26 @@ const successPayloadFixture = fc.record({
   passwordChangeRequired: fc.boolean(),
 })
 const incompleteSuccessPayloadFixture = fc.oneof(
-  successPayloadFixture.map(({ accessToken: _accessToken, ...payload }) => payload),
-  successPayloadFixture.map(({ refreshToken: _refreshToken, ...payload }) => payload),
-  successPayloadFixture.map(({ user: _user, ...payload }) => payload),
-  successPayloadFixture.map(({ passwordChangeRequired: _passwordChangeRequired, ...payload }) => payload)
+  successPayloadFixture.map(({ refreshToken, user, passwordChangeRequired }) => ({
+    refreshToken,
+    user,
+    passwordChangeRequired,
+  })),
+  successPayloadFixture.map(({ accessToken, user, passwordChangeRequired }) => ({
+    accessToken,
+    user,
+    passwordChangeRequired,
+  })),
+  successPayloadFixture.map(({ accessToken, refreshToken, passwordChangeRequired }) => ({
+    accessToken,
+    refreshToken,
+    passwordChangeRequired,
+  })),
+  successPayloadFixture.map(({ accessToken, refreshToken, user }) => ({
+    accessToken,
+    refreshToken,
+    user,
+  }))
 )
 const validationIssuePaths = fc.oneof(
   fc.tuple(
@@ -64,7 +81,7 @@ const validationIssue = fc
   }))
 const validationIssues = fc.array(validationIssue, { maxLength: 10 })
 
-const formStateWithError = (field: keyof typeof LOGIN_FIELD, error: string) =>
+const formStateWithError = (field: LoginField, error: string) =>
   fc.record({
     credentials,
     fieldErrors: fc.record({
@@ -73,7 +90,7 @@ const formStateWithError = (field: keyof typeof LOGIN_FIELD, error: string) =>
     }),
   })
 
-const isolatedFieldEdit = (field: keyof typeof LOGIN_FIELD, error: string) =>
+const isolatedFieldEdit = (field: LoginField, error: string) =>
   fc
     .tuple(formStateWithError(field, error), fc.string())
     .map(([state, value]) => ({ field, state, value }))

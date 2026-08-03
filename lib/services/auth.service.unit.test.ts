@@ -46,7 +46,7 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from '@/lib/services/token.service'
-import { login, refresh as authRefresh, logout, changePassword } from './auth.service'
+import { login, logout, changePassword } from './auth.service'
 
 const mockFindByCedula = vi.mocked(findByCedula)
 const mockFindById = vi.mocked(findById)

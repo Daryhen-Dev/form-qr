@@ -14,7 +14,6 @@ import {
   findActiveByUser,
   findHistoryByUser,
   findActiveByBranch,
-  AssignmentConflictError,
 } from './branch-assignment.repository'
 import type { AssignmentRow } from './branch-assignment.repository'
 

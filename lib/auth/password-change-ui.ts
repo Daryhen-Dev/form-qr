@@ -35,12 +35,13 @@ export function validateConfirmPassword(
     : PASSWORD_CHANGE_VALIDATION.MISMATCH_ERROR
 }
 
-export interface ChangePasswordRequestHeaders {
+export interface ChangePasswordRequestHeaders
+  extends Record<string, string> {
   'Content-Type': 'application/json'
   Authorization: string
 }
 
-export interface ChangePasswordRequest {
+export interface ChangePasswordRequest extends RequestInit {
   method: 'POST'
   headers: ChangePasswordRequestHeaders
   body: string

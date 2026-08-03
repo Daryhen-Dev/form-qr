@@ -2,11 +2,15 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react"
 
+import {
+  createAccessContext,
+  useOptionalAccess,
+} from "@/components/access/access-provider"
+import { PasswordChangeForm } from "@/components/auth/password-change-form"
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { PasswordChangeForm } from "@/components/auth/password-change-form"
 import {
   LOGIN_FIELD,
   SESSION_AVAILABILITY,
@@ -36,31 +40,24 @@ const LOGIN_STATUS_MESSAGE = {
 } as const
 
 export function LoginForm() {
+  const accessProvider = useOptionalAccess()
   const [formState, setFormState] = useState(INITIAL_FORM_STATE)
   const [isPending, setIsPending] = useState(false)
-  const [isHydrated, setIsHydrated] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string>()
-  const [, setAvailableSession] = useState<SessionState>()
   const [restrictedSession, setRestrictedSession] = useState<SessionState>()
+  const formRef = useRef<HTMLFormElement>(null)
   const cedulaInputRef = useRef<HTMLInputElement>(null)
   const passwordInputRef = useRef<HTMLInputElement>(null)
   const { credentials, fieldErrors } = formState
 
   useEffect(() => {
-    setIsHydrated(true)
+    formRef.current?.setAttribute("data-hydrated", "true")
   }, [])
 
-  // Leaving the Modo_de_Cambio_Obligatorio returns to a pristine login form:
-  // the restricted session is dropped, no Sesión_Autenticada_Disponible is
-  // restored, and the Contraseña_Actualizada is never reused because the form
-  // state is reset for a brand-new authentication (Req 4.4). A terminal branch
-  // can hand back a safe Mensaje_de_Estado (e.g. the 401 NEW_LOGIN_REQUIRED
-  // notice) so it survives the child's unmount and renders on the login form
-  // (Req 4.6); it carries no Secreto.
-  function handleRestrictedComplete(statusMessage?: string) {
+  function handleRestrictedComplete(message?: string) {
+    accessProvider?.clearAccess()
     setRestrictedSession(undefined)
-    setAvailableSession(undefined)
-    setStatusMessage(statusMessage)
+    setStatusMessage(message)
     setFormState(INITIAL_FORM_STATE)
     setIsPending(false)
   }
@@ -76,6 +73,11 @@ export function LoginForm() {
 
       return updateLoginField(current, field, value)
     })
+  }
+
+  function resetAccess() {
+    accessProvider?.clearAccess()
+    setRestrictedSession(undefined)
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -118,24 +120,35 @@ export function LoginForm() {
         const session = deriveSessionState(await response.json())
 
         if (session === undefined) {
-          setAvailableSession(undefined)
-          setRestrictedSession(undefined)
+          resetAccess()
           setStatusMessage(LOGIN_STATUS_MESSAGE.RETRYABLE_FAILURE)
-        } else if (session.availability === SESSION_AVAILABILITY.RESTRICTED) {
-          setAvailableSession(undefined)
-          setRestrictedSession(session)
-          setStatusMessage(LOGIN_STATUS_MESSAGE.PASSWORD_CHANGE_REQUIRED)
         } else {
-          setRestrictedSession(undefined)
-          setAvailableSession(session)
+          const access = createAccessContext({
+            accessToken: session.accessToken,
+            user: session.user,
+            availability: session.availability,
+          })
+
+          if (accessProvider !== undefined && access === undefined) {
+            resetAccess()
+            setStatusMessage(LOGIN_STATUS_MESSAGE.RETRYABLE_FAILURE)
+          } else if (session.availability === SESSION_AVAILABILITY.RESTRICTED) {
+            if (accessProvider !== undefined && access !== undefined) {
+              accessProvider.setAccess(access)
+            } else {
+              setRestrictedSession(session)
+            }
+            setStatusMessage(LOGIN_STATUS_MESSAGE.PASSWORD_CHANGE_REQUIRED)
+          } else if (accessProvider !== undefined && access !== undefined) {
+            accessProvider.setAccess(access)
+          }
         }
 
         return
       }
 
       if (response.status === 401) {
-        setAvailableSession(undefined)
-        setRestrictedSession(undefined)
+        resetAccess()
         setFormState((current) => ({
           ...current,
           credentials: { ...current.credentials, password: "" },
@@ -146,8 +159,7 @@ export function LoginForm() {
       }
 
       if (response.status === 422) {
-        setAvailableSession(undefined)
-        setRestrictedSession(undefined)
+        resetAccess()
         setFormState((current) => ({
           ...current,
           credentials: { ...current.credentials, password: "" },
@@ -172,18 +184,15 @@ export function LoginForm() {
         return
       }
 
-      setAvailableSession(undefined)
-      setRestrictedSession(undefined)
+      resetAccess()
       setStatusMessage(LOGIN_STATUS_MESSAGE.RETRYABLE_FAILURE)
     } catch {
-      setAvailableSession(undefined)
-      setRestrictedSession(undefined)
+      resetAccess()
       setStatusMessage(LOGIN_STATUS_MESSAGE.RETRYABLE_FAILURE)
     } finally {
       setIsPending(false)
     }
   }
-
 
   const isRestricted = restrictedSession !== undefined
 
@@ -192,15 +201,11 @@ export function LoginForm() {
       <form
         aria-busy={isPending}
         className="w-full space-y-5"
-        data-hydrated={isHydrated ? "true" : undefined}
         noValidate
         onSubmit={handleSubmit}
+        ref={formRef}
       >
         {isRestricted ? (
-          // While the Modo_de_Cambio_Obligatorio is active the login inputs are
-          // withdrawn and no Sesión_Autenticada_Disponible is restored; only the
-          // status announcing the mandatory change persists here, and the change
-          // surface itself renders in the sibling below (Req 1.1, 1.4).
           <Alert aria-atomic="true" aria-live="polite" role="status" variant="destructive">
             {LOGIN_STATUS_MESSAGE.PASSWORD_CHANGE_REQUIRED}
           </Alert>

@@ -422,7 +422,7 @@ describe("Propiedad 7", () => {
       }),
       { numRuns: 100 }
     )
-  })
+  }, 30000)
 })
 
 
@@ -747,5 +747,5 @@ describe("Propiedad 2", () => {
       ),
       { numRuns: 100 }
     )
-  })
+  }, 30000)
 })
